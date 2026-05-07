@@ -67,13 +67,18 @@ def draw_centered_wrapped(surface, text, font, color, rect, line_gap=6):
             current = word
     if current:
         lines.append(current)
+    max_fit = max(1, (rect.height + line_gap) // (font.get_height() + line_gap))
+    lines = lines[:max_fit]
     total_h = len(lines) * font.get_height() + max(0, len(lines) - 1) * line_gap
-    y = rect.centery - total_h // 2
+    y = max(rect.y, rect.centery - total_h // 2)
+    old_clip = surface.get_clip()
+    surface.set_clip(rect)
     for line in lines:
         rendered = font.render(line, True, color)
         r = rendered.get_rect(centerx=rect.centerx, top=y)
         surface.blit(rendered, r)
         y += font.get_height() + line_gap
+    surface.set_clip(old_clip)
 
 
 def draw_wrapped_text(surface, text, font, color, rect, line_gap=5, max_lines=None):
@@ -160,6 +165,11 @@ def draw_premium_chip(surface, center, radius, label, font, pulse=0.0):
         outer = (int(center[0] + math.cos(rad) * (radius - 6)), int(center[1] + math.sin(rad) * (radius - 6)))
         inner = (int(center[0] + math.cos(rad) * (radius - 27)), int(center[1] + math.sin(rad) * (radius - 27)))
         pygame.draw.line(surface, GOLD_2, outer, inner, 5)
+    for angle in (35 + pulse * 28, 215 + pulse * 28):
+        rad = math.radians(angle)
+        sparkle = (int(center[0] + math.cos(rad) * (radius + 12)), int(center[1] + math.sin(rad) * (radius + 12)))
+        pygame.draw.circle(surface, (255, 246, 201), sparkle, max(2, radius // 16))
+        pygame.draw.circle(surface, (*GOLD_2, 90), sparkle, max(5, radius // 9), 1)
     pygame.draw.circle(surface, (255, 255, 255), (center[0] - radius // 3, center[1] - radius // 3), max(3, radius // 18))
     draw_text(surface, label, font, WHITE, center, "center")
 
@@ -202,19 +212,21 @@ def draw_game_icon(surface, rect, scene, fonts, hovered=False):
         pygame.draw.circle(surface, WHITE, (center[0] + 19, center[1] - 19), 5)
         draw_text(surface, "0", fonts["tiny"], WHITE, center, "center")
     elif scene == "slots":
-        machine = pygame.Rect(rect.x + 18, rect.y + 18, rect.w - 36, rect.h - 30)
+        machine = pygame.Rect(rect.x + 10, rect.y + 18, rect.w - 20, rect.h - 30)
         rounded_rect(surface, machine, (126, 25, 58), 10, 2, GOLD)
-        for i, label in enumerate(["67", "A", "E"]):
-            reel = pygame.Rect(machine.x + 8 + i * 28, machine.y + 12, 24, 42)
+        reel_w, gap = 28, 4
+        x0 = machine.x + (machine.w - (reel_w * 3 + gap * 2)) // 2
+        for i, label in enumerate(["7", "67", "BOB"]):
+            reel = pygame.Rect(x0 + i * (reel_w + gap), machine.y + 12, reel_w, 42)
             rounded_rect(surface, reel, (246, 239, 218), 6, 1, (211, 199, 167))
             draw_text(surface, label, fonts["tiny"], (126, 25, 58), reel.center, "center")
     elif scene == "mines":
         for row in range(3):
             for col in range(3):
                 cell = pygame.Rect(rect.x + 22 + col * 22, rect.y + 18 + row * 22, 18, 18)
-                rounded_rect(surface, cell, (37, 50, 77), 5, 1, (83, 98, 128))
-        draw_diamond(surface, rect.center, 20, (90, 220, 184), GOLD_2, 2)
-        draw_diamond(surface, rect.center, 9, (206, 255, 239))
+                rounded_rect(surface, cell, (25, 55, 95), 5, 1, (87, 139, 194))
+        draw_diamond(surface, rect.center, 20, (86, 184, 255), WHITE, 2)
+        draw_diamond(surface, rect.center, 9, (190, 235, 255))
     elif scene == "plinko":
         center_x = rect.centerx
         top_y = rect.y + 22
@@ -296,9 +308,9 @@ class Scene:
         pass
 
     def draw_panel_title(self, surface, title, subtitle=None):
-        draw_text(surface, title, self.app.fonts["h2"], WHITE, (64, 118))
+        draw_text(surface, title, self.app.fonts["h2"], WHITE, (64, 98))
         if subtitle:
-            draw_text(surface, subtitle, self.app.fonts["small"], MUTED, (66, 158))
+            draw_wrapped_text(surface, subtitle, self.app.fonts["small"], MUTED, pygame.Rect(66, 136, 650, 42), 4, 2)
 
 
 class CasinoGameScene(Scene):
@@ -426,7 +438,7 @@ class MenuScene(Scene):
         draw_text(surface, "Aura + Ego", fonts["h1"], WHITE, (75, 230))
         draw_text(surface, "feito por: André B, Christian S, Rony F", fonts["body"], MUTED, (78, 282))
         draw_premium_chip(surface, (1094, 180), 76, "67", fonts["h1"], (math.sin(self.time * 1.6) + 1) / 2)
-        draw_text(surface, "Salão principal", fonts["h2"], WHITE, (72, 310))
+        draw_text(surface, "Salão principal", fonts["h3"], WHITE, (72, 326))
 
     def draw_menu_card(self, surface, rect, scene, title, desc, hovered):
         fonts = self.app.fonts
@@ -451,10 +463,11 @@ class MenuScene(Scene):
             surface.blit(glow, rect)
         icon_rect = pygame.Rect(rect.x + (rect.w - 116) // 2, rect.y + 26, 116, 96)
         draw_game_icon(surface, icon_rect, scene, fonts, hovered)
-        draw_text(surface, title, fonts["h3"], WHITE, (rect.x + 24, rect.y + 138))
-        desc_panel = pygame.Rect(rect.x + 18, rect.y + 176, rect.w - 36, 78)
+        title_rect = pygame.Rect(rect.x + 12, rect.y + 132, rect.w - 24, 34)
+        draw_centered_wrapped(surface, title, fonts["h3"], WHITE, title_rect, 2)
+        desc_panel = pygame.Rect(rect.x + 14, rect.y + 174, rect.w - 28, 86)
         rounded_rect(surface, desc_panel, (14, 20, 34), 12, 1, lerp_color((62, 76, 104), (132, 112, 66), t))
-        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-20, -16), 4, 3)
+        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-18, -14), 4, 3)
         cta = pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44)
         if t > 0.03:
             cta_glow = pygame.Surface((cta.w + 30, cta.h + 24), pygame.SRCALPHA)
@@ -623,8 +636,8 @@ class BlackjackScene(CasinoGameScene):
 
     def draw_card(self, surface, card, x, y, hidden=False, animate=False):
         card_surface = pygame.Surface((98, 136), pygame.SRCALPHA)
-        pygame.draw.rect(card_surface, (0, 0, 0, 58), pygame.Rect(8, 9, 86, 122), border_radius=13)
-        rect = pygame.Rect(3, 3, 86, 122)
+        pygame.draw.rect(card_surface, (0, 0, 0, 58), pygame.Rect(8, 10, 86, 122), border_radius=13)
+        rect = pygame.Rect(3, 4, 86, 122)
         if hidden:
             rounded_rect(card_surface, rect, (115, 28, 50), 12, 2, GOLD)
             inner = pygame.Rect(rect.x + 9, rect.y + 9, rect.w - 18, rect.h - 18)
@@ -637,7 +650,7 @@ class BlackjackScene(CasinoGameScene):
             rank, suit = card
             color = RED if suit in ("♥", "♦") else INK
             rounded_rect(card_surface, rect, CARD, 12, 2, (224, 218, 202))
-            pygame.draw.rect(card_surface, (255, 255, 255, 90), pygame.Rect(rect.x + 7, rect.y + 7, rect.w - 14, 24), border_radius=9)
+            pygame.draw.rect(card_surface, (255, 255, 255, 48), pygame.Rect(rect.x + 7, rect.y + 8, rect.w - 14, 18), border_radius=8)
             draw_text(card_surface, rank, self.app.fonts["card"], color, (rect.x + 10, rect.y + 8))
             draw_text(card_surface, suit, self.app.fonts["h2"], color, rect.center, "center")
             draw_text(card_surface, rank, self.app.fonts["card"], color, (rect.x + 76, rect.y + 114), "bottomright")
@@ -660,19 +673,19 @@ class BlackjackScene(CasinoGameScene):
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Blackjack", "Chegue a 21 sem estourar. Blackjack paga 3:2.")
-        table = pygame.Rect(48, 150, 1184, 428)
+        table = pygame.Rect(48, 172, 1184, 406)
         rounded_rect(surface, table, (10, 76, 59), 26, 5, GOLD)
         inner = table.inflate(-26, -24)
         rounded_rect(surface, inner, (12, 99, 71), 24, 2, (31, 135, 100))
-        pygame.draw.ellipse(surface, (16, 126, 88), pygame.Rect(106, 190, 1068, 330), 8)
-        pygame.draw.arc(surface, GOLD_2, pygame.Rect(162, 218, 960, 270), math.pi, math.tau, 3)
-        draw_text(surface, "AURA + EGO  BLACKJACK", self.app.fonts["tiny"], (194, 235, 212), (520, 192))
+        pygame.draw.ellipse(surface, (16, 126, 88), pygame.Rect(106, 208, 1068, 304), 8)
+        pygame.draw.arc(surface, GOLD_2, pygame.Rect(162, 232, 960, 250), math.pi, math.tau, 3)
+        draw_text(surface, "AURA + EGO  BLACKJACK", self.app.fonts["tiny"], (194, 235, 212), (520, 196))
         for cx in (220, 360, 500, 640):
             pygame.draw.circle(surface, (17, 112, 80), (cx, 529), 34, 2)
             pygame.draw.circle(surface, (210, 176, 94), (cx, 529), 22, 1)
         dealer_hidden = self.phase == "player"
-        self.draw_hand(surface, "Dealer", self.dealer, 154, 228, dealer_hidden)
-        self.draw_hand(surface, "Você", self.player, 154, 406, False)
+        self.draw_hand(surface, "Dealer", self.dealer, 154, 244, dealer_hidden)
+        self.draw_hand(surface, "Você", self.player, 154, 412, False)
         player_value = self.hand_value(self.player) if self.player else 0
         dealer_value = self.hand_value(self.dealer) if self.dealer and not dealer_hidden else "?"
         info_rect = pygame.Rect(760, 228, 360, 248)
@@ -731,6 +744,7 @@ class DiceScene(CasinoGameScene):
         self.roll_elapsed = 0.0
         self.rolling = self.roll_duration
         self.pending_result = [random.randint(1, 6), random.randint(1, 6)]
+        self.die_angles = [random.uniform(-25, 25), random.uniform(-25, 25)]
         self.message = "Os dados estão rolando..."
 
     def update(self, dt):
@@ -739,12 +753,15 @@ class DiceScene(CasinoGameScene):
             self.rolling -= dt
             self.dice = [random.randint(1, 6), random.randint(1, 6)]
             progress = clamp(self.roll_elapsed / self.roll_duration, 0, 1)
-            energy = (1 - progress) ** 2
+            energy = (1 - progress) ** 2.35
+            ease = 1 - (1 - progress) ** 3
             for i in range(2):
-                wobble = math.sin((self.roll_elapsed * 18) + i * 1.7)
-                hop = abs(math.sin((self.roll_elapsed * 13) + i)) * 42 * energy
-                self.die_angles[i] = wobble * 34 * energy
-                self.die_offsets[i] = (int(math.cos(self.roll_elapsed * 15 + i) * 24 * energy), -int(hop))
+                spin = (1 - ease) * 540 * (1 if i == 0 else -1)
+                wobble = math.sin((self.roll_elapsed * 22) + i * 1.7) * 20 * energy
+                hop = abs(math.sin((self.roll_elapsed * 15) + i * 0.9)) * 48 * energy
+                slide = math.cos(self.roll_elapsed * 12 + i * 1.2) * 30 * energy
+                self.die_angles[i] = spin + wobble
+                self.die_offsets[i] = (int(slide), -int(hop))
             if self.rolling <= 0:
                 self.dice = self.pending_result
                 self.die_angles = [0, 0]
@@ -779,7 +796,6 @@ class DiceScene(CasinoGameScene):
         pygame.draw.rect(die_surface, (0, 0, 0, 70), pygame.Rect(14, 14, rect.w, rect.h), border_radius=22)
         rounded_rect(die_surface, local, CARD, 22, 3, (216, 210, 198))
         pygame.draw.rect(die_surface, (255, 255, 255, 80), pygame.Rect(local.x + 12, local.y + 12, local.w - 24, 28), border_radius=14)
-        pygame.draw.arc(die_surface, (191, 181, 160), local.inflate(-18, -18), math.radians(210), math.radians(330), 3)
         spots = {
             1: [(0.5, 0.5)],
             2: [(0.28, 0.28), (0.72, 0.72)],
@@ -798,9 +814,10 @@ class DiceScene(CasinoGameScene):
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Dice", "Dois dados, aposta rápida e pagamentos claros.")
-        stage = pygame.Rect(80, 166, 1120, 316)
+        stage = pygame.Rect(80, 178, 1120, 304)
         rounded_rect(surface, stage, PANEL, 24, 2, (75, 90, 116))
-        pygame.draw.arc(surface, GOLD, pygame.Rect(210, 196, 860, 240), 0, math.pi, 4)
+        pygame.draw.ellipse(surface, (9, 13, 24, 92), pygame.Rect(420, 370, 210, 38))
+        pygame.draw.ellipse(surface, (9, 13, 24, 92), pygame.Rect(660, 370, 210, 38))
         self.draw_die(surface, pygame.Rect(450, 235, 134, 134), self.dice[0], self.die_angles[0], self.die_offsets[0])
         self.draw_die(surface, pygame.Rect(690, 235, 134, 134), self.dice[1], self.die_angles[1], self.die_offsets[1])
         total = sum(self.dice)
@@ -817,7 +834,13 @@ class RouletteScene(CasinoGameScene):
 
     def __init__(self, app):
         super().__init__(app)
-        self.selected = ("color", "red")
+        self.active_bets = {
+            "number": set(),
+            "color": set(),
+            "parity": set(),
+            "range": set(),
+            "dozen": set(),
+        }
         self.current = 0
         self.spinning = 0.0
         self.spin_elapsed = 0.0
@@ -843,42 +866,64 @@ class RouletteScene(CasinoGameScene):
 
     def option_specs(self):
         specs = [
-            (("color", "red"), "Vermelho", "danger", 358, 374, 126, 42),
-            (("color", "black"), "Preto", "secondary", 492, 374, 126, 42),
-            (("parity", "even"), "Par", "blue", 626, 374, 106, 42),
-            (("parity", "odd"), "Ímpar", "blue", 740, 374, 106, 42),
-            (("range", "low"), "1-18", "ghost", 854, 374, 106, 42),
-            (("range", "high"), "19-36", "ghost", 968, 374, 106, 42),
-            (("dozen", 1), "1a dúzia", "ghost", 408, 424, 192, 42),
-            (("dozen", 2), "2a dúzia", "ghost", 608, 424, 192, 42),
-            (("dozen", 3), "3a dúzia", "ghost", 808, 424, 192, 42),
+            (("color", "red"), "Vermelho", "danger", 358, 386, 126, 42),
+            (("color", "black"), "Preto", "secondary", 492, 386, 126, 42),
+            (("parity", "even"), "Par", "blue", 626, 386, 106, 42),
+            (("parity", "odd"), "Ímpar", "blue", 740, 386, 106, 42),
+            (("range", "low"), "1-18", "ghost", 854, 386, 106, 42),
+            (("range", "high"), "19-36", "ghost", 968, 386, 106, 42),
+            (("dozen", 1), "1a dúzia", "ghost", 408, 436, 192, 42),
+            (("dozen", 2), "2a dúzia", "ghost", 608, 436, 192, 42),
+            (("dozen", 3), "3a dúzia", "ghost", 808, 436, 192, 42),
         ]
         return specs
+
+    def bet_count(self):
+        return sum(len(values) for values in self.active_bets.values())
+
+    def is_bet_active(self, selection):
+        kind, value = selection
+        return value in self.active_bets[kind]
+
+    def toggle_bet(self, selection):
+        kind, value = selection
+        if kind in ("color", "parity", "range"):
+            if value in self.active_bets[kind]:
+                self.active_bets[kind].clear()
+            else:
+                self.active_bets[kind] = {value}
+        else:
+            if value in self.active_bets[kind]:
+                self.active_bets[kind].remove(value)
+            else:
+                self.active_bets[kind].add(value)
 
     def build_ui(self):
         self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
         self.add_bet_buttons(850, 604)
-        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Girar", self.spin, "success", self.spinning <= 0 and self.app.balance >= self.bet))
+        total_cost = self.bet * self.bet_count()
+        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Girar", self.spin, "success", self.spinning <= 0 and self.bet_count() > 0 and self.app.balance >= total_cost))
         for selection, label, kind, x, y, w, h in self.option_specs():
-            selected_kind = "primary" if self.selected == selection else kind
+            selected_kind = "primary" if self.is_bet_active(selection) else kind
             self.buttons.append(Button(pygame.Rect(x, y, w, h), label, lambda s=selection: self.select(s), selected_kind, self.spinning <= 0))
 
     def select(self, selection):
         if self.spinning <= 0:
-            self.selected = selection
+            self.toggle_bet(selection)
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.spinning <= 0:
             for rect, num in self.number_rects:
                 if rect.collidepoint(event.pos):
-                    self.selected = ("number", num)
+                    self.toggle_bet(("number", num))
                     return True
         return super().handle_event(event)
 
     def spin(self):
-        if self.spinning > 0 or self.app.balance < self.bet:
+        total_cost = self.bet * self.bet_count()
+        if self.spinning > 0 or self.bet_count() == 0 or self.app.balance < total_cost:
             return
-        self.app.balance -= self.bet
+        self.app.balance -= total_cost
         self.target = random.randint(0, 36)
         self.spin_duration = random.uniform(3.0, 3.7)
         self.spin_elapsed = 0.0
@@ -909,30 +954,33 @@ class RouletteScene(CasinoGameScene):
 
     def finish_spin(self):
         num = self.current
-        sel_type, sel_value = self.selected
-        multiplier = 0
-        win = False
-        if sel_type == "number":
-            win = num == sel_value
-            multiplier = 36
-        elif sel_type == "color":
-            win = num != 0 and ((sel_value == "red" and num in self.red_numbers) or (sel_value == "black" and num not in self.red_numbers))
-            multiplier = 2
-        elif sel_type == "parity":
-            win = num != 0 and ((sel_value == "even" and num % 2 == 0) or (sel_value == "odd" and num % 2 == 1))
-            multiplier = 2
-        elif sel_type == "range":
-            win = (sel_value == "low" and 1 <= num <= 18) or (sel_value == "high" and 19 <= num <= 36)
-            multiplier = 2
-        elif sel_type == "dozen":
-            win = num != 0 and (num - 1) // 12 + 1 == sel_value
-            multiplier = 3
-        if win:
-            payout = self.bet * multiplier
+        payout = 0
+        wins = []
+        for value in self.active_bets["number"]:
+            if num == value:
+                payout += self.bet * 36
+                wins.append(f"número {value}")
+        for value in self.active_bets["color"]:
+            if num != 0 and ((value == "red" and num in self.red_numbers) or (value == "black" and num not in self.red_numbers)):
+                payout += self.bet * 2
+                wins.append("vermelho" if value == "red" else "preto")
+        for value in self.active_bets["parity"]:
+            if num != 0 and ((value == "even" and num % 2 == 0) or (value == "odd" and num % 2 == 1)):
+                payout += self.bet * 2
+                wins.append("par" if value == "even" else "ímpar")
+        for value in self.active_bets["range"]:
+            if (value == "low" and 1 <= num <= 18) or (value == "high" and 19 <= num <= 36):
+                payout += self.bet * 2
+                wins.append("1-18" if value == "low" else "19-36")
+        for value in self.active_bets["dozen"]:
+            if num != 0 and (num - 1) // 12 + 1 == value:
+                payout += self.bet * 3
+                wins.append(f"{value}a dúzia")
+        if payout:
             self.app.balance += payout
-            self.message = f"Caiu {num}. Vitória na roleta: {br_money(payout)} fichas."
+            self.message = f"Caiu {num}. Venceram: {', '.join(wins)}. Total: {br_money(payout)} fichas."
         else:
-            self.message = f"Caiu {num}. A banca levou esta rodada."
+            self.message = f"Caiu {num}. Nenhuma aposta ativa venceu."
 
     def draw_wheel(self, surface, center, radius):
         pygame.draw.circle(surface, (12, 16, 26), center, radius + 16)
@@ -957,50 +1005,46 @@ class RouletteScene(CasinoGameScene):
 
     def draw_number_grid(self, surface):
         self.number_rects = []
-        x0, y0 = 408, 178
+        x0, y0 = 408, 194
         cell, gap = 48, 4
         zero = pygame.Rect(x0 - 56, y0, cell, cell * 3 + gap * 2)
         self.number_rects.append((zero, 0))
         color = self.number_color(0)
-        rounded_rect(surface, zero, color, 8, 2, GOLD if self.selected == ("number", 0) else (68, 82, 105))
+        rounded_rect(surface, zero, color, 8, 2, GOLD if self.is_bet_active(("number", 0)) else (68, 82, 105))
         draw_text(surface, "0", self.app.fonts["h3"], WHITE, zero.center, "center")
         for n in range(1, 37):
             col = (n - 1) // 3
             row = 2 - ((n - 1) % 3)
             rect = pygame.Rect(x0 + col * (cell + gap), y0 + row * (cell + gap), cell, cell)
             self.number_rects.append((rect, n))
-            border = GOLD if self.selected == ("number", n) else (68, 82, 105)
+            border = GOLD if self.is_bet_active(("number", n)) else (68, 82, 105)
             rounded_rect(surface, rect, self.number_color(n), 7, 2, border)
             draw_text(surface, str(n), self.app.fonts["small"], WHITE, rect.center, "center")
 
     def selection_text(self):
-        kind, value = self.selected
-        names = {
-            ("color", "red"): "Vermelho",
-            ("color", "black"): "Preto",
-            ("parity", "even"): "Par",
-            ("parity", "odd"): "Ímpar",
-            ("range", "low"): "1-18",
-            ("range", "high"): "19-36",
-            ("dozen", 1): "1a dúzia",
-            ("dozen", 2): "2a dúzia",
-            ("dozen", 3): "3a dúzia",
-        }
-        if kind == "number":
-            return f"Número {value}"
-        return names.get(self.selected, str(self.selected))
+        labels = []
+        labels.extend(f"N{num}" for num in sorted(self.active_bets["number"]))
+        labels.extend("Vermelho" if value == "red" else "Preto" for value in sorted(self.active_bets["color"]))
+        labels.extend("Par" if value == "even" else "Ímpar" for value in sorted(self.active_bets["parity"]))
+        labels.extend("1-18" if value == "low" else "19-36" for value in sorted(self.active_bets["range"]))
+        labels.extend(f"{value}a dúzia" for value in sorted(self.active_bets["dozen"]))
+        if not labels:
+            return "nenhuma aposta"
+        text = ", ".join(labels)
+        return text if len(text) <= 62 else f"{text[:59]}..."
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Roleta", "Mesa europeia 0-36 com apostas internas e externas.")
         self.draw_wheel(surface, (172, 326), 128)
-        table = pygame.Rect(330, 148, 874, 380)
+        table = pygame.Rect(330, 182, 874, 354)
         rounded_rect(surface, table, (11, 101, 68), 18, 3, (30, 139, 94))
-        draw_text(surface, "NÚMEROS", self.app.fonts["tiny"], (190, 232, 207), (354, 158))
+        draw_text(surface, "NÚMEROS", self.app.fonts["tiny"], (190, 232, 207), (354, 192))
         self.draw_number_grid(surface)
-        options_panel = pygame.Rect(344, 356, 760, 126)
+        options_panel = pygame.Rect(344, 368, 760, 126)
         rounded_rect(surface, options_panel, (15, 73, 58), 14, 1, (60, 152, 117))
-        draw_text(surface, "APOSTAS EXTERNAS", self.app.fonts["tiny"], (190, 232, 207), (362, 362))
-        draw_text(surface, f"Selecionado: {self.selection_text()}", self.app.fonts["body"], GOLD_2, (356, 494))
+        draw_text(surface, "APOSTAS EXTERNAS", self.app.fonts["tiny"], (190, 232, 207), (362, 374))
+        draw_text(surface, f"Selecionado: {self.selection_text()}", self.app.fonts["body"], GOLD_2, (356, 506))
+        draw_text(surface, f"{self.bet_count()} apostas | custo {br_money(self.bet * self.bet_count())}", self.app.fonts["small"], MUTED, (920, 506))
         msg_rect = pygame.Rect(292, 604, 510, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
@@ -1014,13 +1058,13 @@ class SlotsScene(CasinoGameScene):
     reel_tape_size = 34
     reel_target_index = 8
     symbols = [
-        ("67", 12, (255, 224, 119), 6),
-        ("AURA", 8, (118, 212, 255), 9),
-        ("EGO", 6, (255, 122, 177), 11),
-        ("◆", 5, (115, 232, 187), 13),
-        ("BOB", 4, (230, 230, 238), 16),
-        ("7", 3, (255, 95, 95), 20),
-        ("C", 2, (255, 174, 99), 25),
+        ("7", 12, (255, 95, 95), 6),
+        ("67", 8, (255, 224, 119), 9),
+        ("BOB", 6, (230, 230, 238), 11),
+        ("6", 5, (118, 212, 255), 13),
+        ("DIAMOND", 4, (86, 184, 255), 16),
+        ("CHERRY", 3, (255, 84, 105), 20),
+        ("HORSESHOE", 2, (255, 199, 91), 25),
     ]
     paylines = [
         [0, 0, 0, 0, 0],
@@ -1141,6 +1185,14 @@ class SlotsScene(CasinoGameScene):
                 return base, color
         return 1, WHITE
 
+    def symbol_label(self, symbol):
+        labels = {"DIAMOND": "Diamante azul", "CHERRY": "Cereja", "HORSESHOE": "Ferradura"}
+        return labels.get(symbol, symbol)
+
+    def symbol_short_label(self, symbol):
+        labels = {"DIAMOND": "Azul", "CHERRY": "Cereja", "HORSESHOE": "Ferr."}
+        return labels.get(symbol, symbol)
+
     def build_ui(self):
         self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
         self.add_bet_buttons(850, 604)
@@ -1193,7 +1245,7 @@ class SlotsScene(CasinoGameScene):
         if payout_factor:
             payout = self.bet * payout_factor
             self.app.balance += payout
-            lines = ", ".join(f"{sym} x{count}" for _, count, sym, _ in self.last_lines)
+            lines = ", ".join(f"{self.symbol_label(sym)} x{count}" for _, count, sym, _ in self.last_lines)
             self.message = f"{lines}. Pagamento total: {br_money(payout)} fichas."
         else:
             self.message = "Sem sequência premiada desta vez."
@@ -1204,27 +1256,31 @@ class SlotsScene(CasinoGameScene):
         inner = rect.inflate(-18, -18)
         rounded_rect(surface, inner, (28, 35, 54), 12, 1, (68, 81, 108))
         pygame.draw.rect(surface, (255, 255, 255, 38), pygame.Rect(inner.x + 8, inner.y + 8, inner.w - 16, 18), border_radius=9)
-        if symbol == "67":
+        if symbol == "7":
+            draw_text(surface, "7", self.app.fonts["mega"], color, (rect.centerx, rect.centery - 4), "center")
+            pygame.draw.line(surface, GOLD_2, (rect.centerx - 20, rect.centery + 28), (rect.centerx + 22, rect.centery + 28), 3)
+        elif symbol == "67":
             draw_chip(surface, rect.center, 34, "67", self.app.fonts["h3"])
-        elif symbol == "AURA":
-            pygame.draw.ellipse(surface, (24, 91, 122), inner.inflate(-10, -26))
-            pygame.draw.ellipse(surface, color, inner.inflate(-26, -42), 3)
-            draw_text(surface, "AURA", self.app.fonts["body"], color, rect.center, "center")
-        elif symbol == "EGO":
-            pygame.draw.circle(surface, (105, 35, 78), rect.center, 35)
-            pygame.draw.circle(surface, color, (rect.centerx - 11, rect.centery - 8), 7)
-            pygame.draw.circle(surface, color, (rect.centerx + 11, rect.centery - 8), 7)
-            pygame.draw.arc(surface, color, pygame.Rect(rect.centerx - 20, rect.centery - 2, 40, 24), 0, math.pi, 3)
-            draw_text(surface, "EGO", self.app.fonts["small"], WHITE, (rect.centerx, rect.centery + 24), "center")
         elif symbol == "BOB":
             band = pygame.Rect(inner.x + 10, inner.centery - 16, inner.w - 20, 32)
             rounded_rect(surface, band, (18, 21, 30), 8, 2, color)
             draw_text(surface, "BOB", self.app.fonts["h3"], color, band.center, "center")
-        elif symbol == "7":
-            draw_text(surface, "7", self.app.fonts["mega"], color, (rect.centerx, rect.centery - 4), "center")
-            pygame.draw.line(surface, GOLD_2, (rect.centerx - 20, rect.centery + 28), (rect.centerx + 22, rect.centery + 28), 3)
-        elif symbol == "C":
-            draw_chip(surface, rect.center, 32, "C", self.app.fonts["h2"])
+        elif symbol == "6":
+            draw_text(surface, "6", self.app.fonts["mega"], color, rect.center, "center")
+        elif symbol == "DIAMOND":
+            draw_diamond(surface, rect.center, 34, color, WHITE, 2)
+            draw_diamond(surface, rect.center, 16, (189, 235, 255))
+        elif symbol == "CHERRY":
+            pygame.draw.line(surface, GREEN, (rect.centerx + 3, rect.centery - 22), (rect.centerx + 18, rect.centery - 42), 4)
+            pygame.draw.circle(surface, color, (rect.centerx - 12, rect.centery + 8), 18)
+            pygame.draw.circle(surface, (230, 38, 66), (rect.centerx + 13, rect.centery + 8), 18)
+            pygame.draw.circle(surface, WHITE, (rect.centerx - 18, rect.centery + 1), 4)
+            pygame.draw.circle(surface, WHITE, (rect.centerx + 7, rect.centery + 1), 4)
+        elif symbol == "HORSESHOE":
+            arc_rect = pygame.Rect(rect.centerx - 34, rect.centery - 32, 68, 68)
+            pygame.draw.arc(surface, color, arc_rect, math.radians(20), math.radians(340), 10)
+            pygame.draw.circle(surface, color, (rect.centerx - 27, rect.centery + 25), 6)
+            pygame.draw.circle(surface, color, (rect.centerx + 27, rect.centery + 25), 6)
         else:
             draw_diamond(surface, rect.center, 34, color, WHITE, 2)
             draw_text(surface, symbol, self.app.fonts["h3"], (18, 29, 44), rect.center, "center")
@@ -1260,7 +1316,8 @@ class SlotsScene(CasinoGameScene):
     def draw_paylines(self, surface, slot_rect):
         colors = [GOLD_2, BLUE, RED, GREEN, PURPLE]
         cell_w, cell_h, gap = 116, 108, 10
-        x0, y0 = slot_rect.x + 63, slot_rect.y + 35
+        x0 = slot_rect.x + (slot_rect.w - (5 * cell_w + 4 * gap)) // 2
+        y0 = slot_rect.y + 35
         for idx, line in enumerate(self.paylines):
             if not any(found[0] == idx for found in self.last_lines):
                 continue
@@ -1271,37 +1328,30 @@ class SlotsScene(CasinoGameScene):
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Slots", "Cinco rolos, cinco linhas e símbolo 67 como prêmio máximo.")
-        pay_rect = pygame.Rect(50, 152, 214, 414)
+        pay_rect = pygame.Rect(50, 178, 214, 388)
         rounded_rect(surface, pay_rect, PANEL, 18, 1, (76, 90, 118))
         draw_text(surface, "TABELA", self.app.fonts["tiny"], MUTED, (pay_rect.x + 18, pay_rect.y + 16))
-        draw_text(surface, "3x   4x   5x", self.app.fonts["tiny"], GOLD_2, (pay_rect.x + 94, pay_rect.y + 42))
+        draw_text(surface, "3x   4x   5x", self.app.fonts["tiny"], GOLD_2, (pay_rect.x + 96, pay_rect.y + 42))
         for i, (sym, base, color, _) in enumerate(self.symbols):
             y = pay_rect.y + 68 + i * 44
-            mini = pygame.Rect(pay_rect.x + 16, y, 38, 34)
+            mini = pygame.Rect(pay_rect.x + 14, y, 66, 34)
             rounded_rect(surface, mini, (24, 31, 49), 8, 1, color)
-            draw_text(surface, sym, self.app.fonts["tiny"], color, mini.center, "center")
-            draw_text(surface, f"{base}", self.app.fonts["small"], WHITE, (pay_rect.x + 96, y + 7))
+            draw_text(surface, self.symbol_short_label(sym), self.app.fonts["tiny"], color, mini.center, "center")
+            draw_text(surface, f"{base}", self.app.fonts["small"], WHITE, (pay_rect.x + 98, y + 7))
             draw_text(surface, f"{int(base * 2.5)}", self.app.fonts["small"], WHITE, (pay_rect.x + 136, y + 7))
             draw_text(surface, f"{base * 5}", self.app.fonts["small"], WHITE, (pay_rect.x + 178, y + 7))
 
-        slot_rect = pygame.Rect(292, 152, 746, 414)
+        slot_rect = pygame.Rect(292, 178, 912, 388)
         rounded_rect(surface, slot_rect, (91, 18, 49), 24, 5, GOLD)
         inner = pygame.Rect(slot_rect.x + 16, slot_rect.y + 18, slot_rect.w - 32, slot_rect.h - 36)
         rounded_rect(surface, inner, (20, 25, 42), 18, 2, (116, 92, 63))
         cell_w, cell_h, gap = 116, 108, 10
-        x0, y0 = slot_rect.x + 63, slot_rect.y + 35
+        x0 = slot_rect.x + (slot_rect.w - (5 * cell_w + 4 * gap)) // 2
+        y0 = slot_rect.y + 35
         for col, reel in enumerate(self.reels):
             reel_rect = pygame.Rect(x0 + col * (cell_w + gap), y0, cell_w, cell_h * 3 + gap * 2)
             self.draw_reel(surface, reel, reel_rect)
         self.draw_paylines(surface, slot_rect)
-        side = pygame.Rect(1060, 152, 144, 414)
-        rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
-        draw_text(surface, "LINHAS", self.app.fonts["tiny"], MUTED, (side.x + 20, side.y + 18))
-        for i, line in enumerate(self.paylines):
-            y = side.y + 58 + i * 56
-            color = [GOLD_2, BLUE, RED, GREEN, PURPLE][i]
-            pygame.draw.line(surface, color, (side.x + 22, y + 20), (side.x + 118, y + 20), 3)
-            draw_text(surface, f"Linha {i + 1}", self.app.fonts["small"], WHITE, (side.x + 22, y))
         msg_rect = pygame.Rect(292, 604, 510, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
@@ -1328,26 +1378,26 @@ class PlinkoScene(CasinoGameScene):
     def __init__(self, app):
         super().__init__(app)
         self.risk = "medium"
-        self.ball_count = 1
         self.state = "idle"
         self.message = "Escolha o risco, ajuste a aposta e solte a bola."
         self.balls = []
         self.bucket_hits = [0 for _ in range(self.rows + 1)]
         self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
-        self.prepare_timer = 0.0
         self.segment_time = 0.17
         self.result_timer = 0.0
         self.round_cost = 0
         self.round_payout = 0
         self.finished_balls = 0
+        self.launched_balls = 0
+        self.next_ball_id = 0
 
     def can_change_bet(self):
-        return self.state not in ("preparing", "dropping")
+        return True
 
     def board_geometry(self):
         return {
             "center_x": 445,
-            "top_y": 184,
+            "top_y": 214,
             "row_gap": 31,
             "pin_gap": 52,
             "bucket_y": 536,
@@ -1373,50 +1423,42 @@ class PlinkoScene(CasinoGameScene):
     def build_ui(self):
         self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
         self.add_bet_buttons(850, 604)
-        round_ready = self.state not in ("preparing", "dropping")
-        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), f"Soltar {self.ball_count}", self.start_drop, "success", round_ready and self.app.balance >= self.bet * self.ball_count))
+        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Soltar bola", self.start_drop, "success", self.app.balance >= self.bet))
         risk_buttons = [
             ("low", "Baixo", 878, 214),
             ("medium", "Médio", 966, 214),
             ("high", "Alto", 1054, 214),
         ]
+        risk_enabled = self.active_ball_count() == 0
         for risk, label, x, y in risk_buttons:
             kind = "primary" if self.risk == risk else "secondary"
-            self.buttons.append(Button(pygame.Rect(x, y, 78, 42), label, lambda r=risk: self.set_risk(r), kind, round_ready))
-        count_buttons = [
-            (1, 878, 310),
-            (5, 966, 310),
-            (10, 1054, 310),
-        ]
-        for count, x, y in count_buttons:
-            kind = "primary" if self.ball_count == count else "secondary"
-            self.buttons.append(Button(pygame.Rect(x, y, 78, 42), str(count), lambda c=count: self.set_ball_count(c), kind, round_ready))
+            self.buttons.append(Button(pygame.Rect(x, y, 78, 42), label, lambda r=risk: self.set_risk(r), kind, risk_enabled))
 
     def set_risk(self, risk):
-        if self.state not in ("preparing", "dropping"):
-            self.risk = risk
-            self.message = f"Perfil selecionado: {self.risk_profiles[risk]['label']}."
-
-    def set_ball_count(self, count):
-        if self.state not in ("preparing", "dropping"):
-            self.ball_count = count
-            self.message = f"Próxima rodada com {count} bola{'s' if count > 1 else ''}."
+        if self.active_ball_count() > 0:
+            return
+        self.risk = risk
+        self.message = f"Perfil selecionado: {self.risk_profiles[risk]['label']}."
 
     def start_drop(self):
-        total_cost = self.bet * self.ball_count
-        if self.state in ("preparing", "dropping") or self.app.balance < total_cost:
+        if self.app.balance < self.bet:
             return
-        self.app.balance -= total_cost
-        self.round_cost = total_cost
-        self.round_payout = 0
-        self.finished_balls = 0
-        self.bucket_hits = [0 for _ in range(self.rows + 1)]
-        self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
-        self.balls = [self.create_ball(i, self.ball_count) for i in range(self.ball_count)]
-        self.prepare_timer = 0.18
+        if self.active_ball_count() == 0:
+            self.balls = []
+            self.round_cost = 0
+            self.round_payout = 0
+            self.finished_balls = 0
+            self.launched_balls = 0
+            self.bucket_hits = [0 for _ in range(self.rows + 1)]
+            self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
+        self.app.balance -= self.bet
+        self.round_cost += self.bet
+        self.launched_balls += 1
+        self.balls.append(self.create_ball(self.next_ball_id))
+        self.next_ball_id += 1
         self.result_timer = 0.0
-        self.state = "preparing"
-        self.message = f"Preparando {self.ball_count} bola{'s' if self.ball_count > 1 else ''}..."
+        self.state = "dropping"
+        self.message = f"Bola lançada. Em queda: {self.active_ball_count()}."
 
     def generate_path(self):
         points = []
@@ -1424,7 +1466,7 @@ class PlinkoScene(CasinoGameScene):
         pin_slots = []
         geo = self.board_geometry()
         slot = 0
-        points.append((geo["center_x"], geo["top_y"] - 62))
+        points.append((geo["center_x"], geo["top_y"] - 44))
         for row in range(self.rows):
             points.append(self.pin_position(row, slot))
             pin_slots.append(slot)
@@ -1434,7 +1476,7 @@ class PlinkoScene(CasinoGameScene):
         points.append(self.bucket_center(slot))
         return points, steps, slot, pin_slots
 
-    def create_ball(self, index, total):
+    def create_ball(self, index):
         path_points, path_steps, bucket_index, pin_slots = self.generate_path()
         multiplier = self.current_multipliers()[bucket_index]
         payout = int(self.bet * multiplier)
@@ -1445,9 +1487,9 @@ class PlinkoScene(CasinoGameScene):
             (90, 220, 184),
             (149, 119, 255),
         ]
-        delay = index * 0.09
+        delay = 0.0
         start_x, start_y = path_points[0]
-        spread = (index - (total - 1) / 2) * 8
+        spread = ((index % 5) - 2) * 5
         path_points = list(path_points)
         path_points[0] = (start_x + spread, start_y)
         return {
@@ -1465,18 +1507,13 @@ class PlinkoScene(CasinoGameScene):
             "finished": False,
             "credited": False,
             "color": colors[index % len(colors)],
-            "radius": 12 if total <= 5 else 10,
+            "radius": 11,
         }
 
     def update(self, dt):
         for i in range(len(self.bucket_flash)):
             self.bucket_flash[i] = max(0.0, self.bucket_flash[i] - dt)
-        if self.state == "preparing":
-            self.prepare_timer -= dt
-            if self.prepare_timer <= 0:
-                self.state = "dropping"
-                self.message = "As bolas estão quicando pelos pinos..."
-        elif self.state == "dropping":
+        if self.state == "dropping":
             for ball in self.balls:
                 self.update_ball(ball, dt)
             active = self.active_ball_count()
@@ -1594,7 +1631,7 @@ class PlinkoScene(CasinoGameScene):
         if not self.balls:
             geo = self.board_geometry()
             idle_ball = {
-                "pos": (geo["center_x"], geo["top_y"] - 62),
+                "pos": (geo["center_x"], geo["top_y"] - 44),
                 "radius": 14,
                 "color": (229, 48, 70),
                 "finished": False,
@@ -1610,16 +1647,17 @@ class PlinkoScene(CasinoGameScene):
         side = pygame.Rect(850, 152, 330, 414)
         rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
         draw_text(surface, "RISCO", self.app.fonts["tiny"], MUTED, (878, 184))
-        draw_text(surface, self.risk_profiles[self.risk]["label"], self.app.fonts["small"], WHITE, (878, 260))
-        draw_text(surface, "BOLAS", self.app.fonts["tiny"], MUTED, (878, 286))
-        draw_text(surface, f"{self.ball_count} por rodada", self.app.fonts["small"], WHITE, (878, 356))
-        draw_text(surface, "RODADA", self.app.fonts["tiny"], MUTED, (878, 384))
-        launched = len(self.balls) if self.balls else self.ball_count
+        draw_text(surface, self.risk_profiles[self.risk]["label"], self.app.fonts["small"], WHITE, (878, 262))
+        draw_text(surface, "LANÇAMENTO", self.app.fonts["tiny"], MUTED, (878, 292))
+        launch_rect = pygame.Rect(878, 314, 270, 46)
+        draw_wrapped_text(surface, "Cada clique solta uma bola independente.", self.app.fonts["small"], WHITE, launch_rect, 4, 2)
+        draw_text(surface, "RODADA ATUAL", self.app.fonts["tiny"], MUTED, (878, 374))
+        launched = self.launched_balls if self.balls else 0
         active = self.active_ball_count()
-        draw_text(surface, f"Lançadas: {launched}", self.app.fonts["small"], WHITE, (878, 410))
-        draw_text(surface, f"Em queda: {active}", self.app.fonts["small"], MUTED, (878, 434))
-        draw_text(surface, f"Payout: {br_money(self.round_payout)}", self.app.fonts["small"], GOLD_2, (878, 458))
-        draw_text(surface, f"Custo: {br_money(self.bet * self.ball_count)}", self.app.fonts["small"], MUTED, (878, 482))
+        draw_text(surface, f"Lançadas: {launched}", self.app.fonts["small"], WHITE, (878, 402))
+        draw_text(surface, f"Em queda: {active}", self.app.fonts["small"], MUTED, (878, 426))
+        draw_text(surface, f"Payout: {br_money(self.round_payout)}", self.app.fonts["small"], GOLD_2, (878, 450))
+        draw_text(surface, f"Custo: {br_money(self.round_cost)}", self.app.fonts["small"], MUTED, (878, 474))
         draw_text(surface, "MULTIPLICADORES", self.app.fonts["tiny"], MUTED, (878, 518))
         multipliers = self.current_multipliers()
         best = max(multipliers)
@@ -1629,7 +1667,7 @@ class PlinkoScene(CasinoGameScene):
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Plinko", "Solte a bola, acompanhe os quiques e ganhe pelo bucket final.")
-        board_rect = pygame.Rect(70, 132, 748, 458)
+        board_rect = pygame.Rect(70, 166, 748, 424)
         self.draw_pin_board(surface, board_rect)
         self.draw_buckets(surface)
         self.draw_balls(surface)
@@ -1740,7 +1778,7 @@ class MinesScene(CasinoGameScene):
     def draw_grid(self, surface):
         self.grid_rects = []
         size, gap = 78, 10
-        x0, y0 = 342, 160
+        x0, y0 = 342, 174
         for row in range(5):
             for col in range(5):
                 index = row * 5 + col
@@ -1763,27 +1801,27 @@ class MinesScene(CasinoGameScene):
                 if show_mine:
                     color = RED
                 elif show_safe:
-                    color = GREEN
+                    color = (34, 118, 194)
                 else:
-                    color = (35, 47, 72) if self.active else (29, 38, 57)
-                rounded_rect(surface, display_rect, color, 14, 2, GOLD if show_safe else (68, 82, 105))
+                    color = (26, 54, 92) if self.active else (22, 37, 65)
+                rounded_rect(surface, display_rect, color, 14, 2, (118, 207, 255) if show_safe else (68, 92, 132))
                 if display_rect.w > 28:
                     if show_mine:
                         pygame.draw.circle(surface, (93, 18, 28), display_rect.center, 22)
                         pygame.draw.circle(surface, WHITE, (display_rect.centerx - 8, display_rect.centery - 8), 4)
                     elif show_safe:
-                        draw_diamond(surface, display_rect.center, 24, (200, 255, 238), WHITE, 2)
-                        draw_diamond(surface, display_rect.center, 12, (66, 225, 178))
+                        draw_diamond(surface, display_rect.center, 24, (109, 203, 255), WHITE, 2)
+                        draw_diamond(surface, display_rect.center, 12, (31, 124, 219))
                     else:
                         draw_text(surface, "?", self.app.fonts["h2"], MUTED, display_rect.center, "center")
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Mines", "Abra casas seguras, aumente o risco e saque antes da bomba.")
-        board = pygame.Rect(310, 128, 510, 484)
-        rounded_rect(surface, board, PANEL, 24, 2, (76, 90, 118))
+        board = pygame.Rect(310, 160, 510, 444)
+        rounded_rect(surface, board, (13, 24, 42), 24, 2, (57, 102, 153))
         self.draw_grid(surface)
         side = pygame.Rect(850, 156, 330, 402)
-        rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
+        rounded_rect(surface, side, (18, 31, 54), 18, 1, (57, 102, 153))
         draw_text(surface, "RISCO", self.app.fonts["tiny"], MUTED, (878, 184))
         draw_text(surface, f"{self.mine_count} minas", self.app.fonts["h2"], WHITE, (878, 212))
         draw_text(surface, "MULTIPLICADOR", self.app.fonts["tiny"], MUTED, (878, 294))
