@@ -31,6 +31,10 @@ def clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def lerp_color(a, b, t):
+    return tuple(int(a[i] * (1 - t) + b[i] * t) for i in range(3))
+
+
 def br_money(value):
     return f"{int(value):,}".replace(",", ".")
 
@@ -137,6 +141,26 @@ def draw_chip(surface, center, radius, label, font):
         p1 = (int(center[0] + math.cos(rad) * (radius - 5)), int(center[1] + math.sin(rad) * (radius - 5)))
         p2 = (int(center[0] + math.cos(rad) * (radius - 20)), int(center[1] + math.sin(rad) * (radius - 20)))
         pygame.draw.line(surface, GOLD_2, p1, p2, 5)
+    draw_text(surface, label, font, WHITE, center, "center")
+
+
+def draw_premium_chip(surface, center, radius, label, font, pulse=0.0):
+    glow = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
+    glow_center = (radius * 2, radius * 2)
+    for i in range(5, 0, -1):
+        alpha = int((18 + pulse * 18) * i)
+        pygame.draw.circle(glow, (*GOLD_2, alpha), glow_center, radius + i * 12, 2)
+    surface.blit(glow, glow.get_rect(center=center))
+    pygame.draw.circle(surface, (95, 12, 34), center, radius)
+    pygame.draw.circle(surface, (168, 25, 52), center, radius - 10)
+    pygame.draw.circle(surface, GOLD_2, center, radius, 5)
+    pygame.draw.circle(surface, (78, 10, 27), center, radius - 28, 3)
+    for angle in range(0, 360, 30):
+        rad = math.radians(angle + pulse * 6)
+        outer = (int(center[0] + math.cos(rad) * (radius - 6)), int(center[1] + math.sin(rad) * (radius - 6)))
+        inner = (int(center[0] + math.cos(rad) * (radius - 27)), int(center[1] + math.sin(rad) * (radius - 27)))
+        pygame.draw.line(surface, GOLD_2, outer, inner, 5)
+    pygame.draw.circle(surface, (255, 255, 255), (center[0] - radius // 3, center[1] - radius // 3), max(3, radius // 18))
     draw_text(surface, label, font, WHITE, center, "center")
 
 
@@ -307,6 +331,8 @@ class MenuScene(Scene):
         self.card_rects = []
         self.hovered_scene = None
         self.last_hovered_scene = None
+        self.time = 0.0
+        self.hover_progress = {}
 
     def build_ui(self):
         self.buttons = []
@@ -318,15 +344,16 @@ class MenuScene(Scene):
             ("mines", "Mines", "Revele diamantes, evite minas e saque no melhor multiplicador.", "mine"),
         ]
         self.card_rects = []
-        start_x, start_y = 72, 340
-        card_w, card_h, gap = 220, 322, 24
+        start_x, start_y = 72, 360
+        card_w, card_h, gap = 220, 320, 24
         for i, (scene, title, desc, icon) in enumerate(games):
             rect = pygame.Rect(start_x + i * (card_w + gap), start_y, card_w, card_h)
             self.card_rects.append((rect, scene, title, desc, icon))
             self.buttons.append(Button(pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44), "Jogar", lambda s=scene: self.app.set_scene(s), "primary"))
-        self.buttons.append(Button(pygame.Rect(1030, 214, 170, 46), "Recarregar", self.app.refill_balance, "secondary"))
+        self.buttons.append(Button(pygame.Rect(1030, 268, 170, 46), "Recarregar", self.app.refill_balance, "secondary"))
 
     def update(self, dt):
+        self.time += dt
         mouse = pygame.mouse.get_pos()
         hovered = None
         for rect, scene, *_ in self.card_rects:
@@ -334,6 +361,11 @@ class MenuScene(Scene):
                 hovered = scene
                 break
         self.hovered_scene = hovered
+        for _, scene, *_ in self.card_rects:
+            current = self.hover_progress.get(scene, 0.0)
+            target = 1.0 if hovered == scene else 0.0
+            speed = 7.5 if target else 5.0
+            self.hover_progress[scene] = current + (target - current) * clamp(dt * speed, 0, 1)
         if hovered != self.last_hovered_scene and hovered == "blackjack":
             self.app.play_sound("blackjack_hover")
         self.last_hovered_scene = hovered
@@ -346,31 +378,80 @@ class MenuScene(Scene):
                     return True
         return super().handle_event(event)
 
-    def draw(self, surface):
+    def draw_lobby_background(self, surface):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        for y in range(96, HEIGHT, 18):
+            t = (y - 96) / (HEIGHT - 96)
+            color = (6, int(28 + 28 * (1 - t)), int(36 + 22 * (1 - t)), int(22 + 34 * (1 - t)))
+            pygame.draw.rect(overlay, color, pygame.Rect(0, y, WIDTH, 18))
+        pulse = (math.sin(self.time * 1.2) + 1) / 2
+        pygame.draw.circle(overlay, (255, 216, 120, int(22 + pulse * 16)), (1060, 210), 260, 2)
+        pygame.draw.circle(overlay, (74, 190, 143, 24), (210, 548), 360, 2)
+        pygame.draw.polygon(overlay, (255, 220, 140, 14), [(610, 92), (754, 92), (1100, 680), (880, 680)])
+        pygame.draw.polygon(overlay, (88, 220, 170, 10), [(120, 96), (230, 96), (500, 680), (250, 680)])
+        for i in range(46):
+            speed = 10 + (i % 5) * 5
+            x = int((i * 173 + self.time * speed) % (WIDTH + 80) - 40)
+            y = 124 + (i * 79) % 520
+            r = 1 + (i % 3)
+            alpha = 42 + (i % 4) * 16
+            pygame.draw.circle(overlay, (255, 231, 164, alpha), (x, y), r)
+        surface.blit(overlay, (0, 0))
+
+    def draw_lobby_header(self, surface):
         fonts = self.app.fonts
-        draw_text(surface, "Casino 67", fonts["mega"], GOLD_2, (72, 122))
-        draw_text(surface, "Aura + Ego", fonts["h1"], WHITE, (75, 205))
-        draw_text(surface, "feito por: André B, Christian S, Rony F", fonts["body"], MUTED, (78, 258))
-        draw_chip(surface, (1080, 150), 78, "67", fonts["h1"])
-        draw_text(surface, "Salão principal", fonts["h2"], WHITE, (72, 294))
+        hero = pygame.Rect(52, 108, 1176, 214)
+        shadow = pygame.Surface((hero.w + 36, hero.h + 36), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 92), shadow.get_rect().inflate(-18, -18), border_radius=26)
+        surface.blit(shadow, (hero.x - 18, hero.y - 10))
+        rounded_rect(surface, hero, (11, 18, 31), 26, 1, (76, 89, 116))
+        pygame.draw.line(surface, GOLD_2, (hero.x + 28, hero.y + 34), (hero.x + 560, hero.y + 34), 2)
+        draw_text(surface, "LOBBY PREMIUM", fonts["tiny"], GOLD_2, (76, 124))
+        draw_text(surface, "Casino 67", fonts["mega"], GOLD_2, (72, 148))
+        draw_text(surface, "Aura + Ego", fonts["h1"], WHITE, (75, 230))
+        draw_text(surface, "feito por: André B, Christian S, Rony F", fonts["body"], MUTED, (78, 282))
+        draw_premium_chip(surface, (1094, 180), 76, "67", fonts["h1"], (math.sin(self.time * 1.6) + 1) / 2)
+        draw_text(surface, "Salão principal", fonts["h2"], WHITE, (72, 310))
+
+    def draw_menu_card(self, surface, rect, scene, title, desc, hovered):
+        fonts = self.app.fonts
+        t = self.hover_progress.get(scene, 0.0)
+        shadow = pygame.Surface((rect.w + 34, rect.h + 34), pygame.SRCALPHA)
+        shadow_alpha = int(70 + t * 70)
+        pygame.draw.rect(shadow, (0, 0, 0, shadow_alpha), pygame.Rect(17, 18, rect.w, rect.h), border_radius=18)
+        surface.blit(shadow, (rect.x - 17, rect.y - 10))
+        border = lerp_color((71, 84, 112), GOLD_2, t)
+        fill = lerp_color(PANEL, (34, 43, 64), t)
+        rounded_rect(surface, rect, fill, 18, 2, border)
+        hover_image = self.app.images.get("blackjack_hover")
+        if scene == "blackjack" and hovered and hover_image:
+            blit_cover(surface, hover_image, rect.inflate(-4, -4), 96)
+            veil = pygame.Surface(rect.size, pygame.SRCALPHA)
+            veil.fill((9, 13, 24, 86))
+            surface.blit(veil, rect)
+        if t > 0.02:
+            glow = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+            sweep_x = int(-rect.w * 0.5 + ((self.time * 170) % (rect.w * 1.8)))
+            pygame.draw.polygon(glow, (255, 235, 170, int(34 * t)), [(sweep_x, 0), (sweep_x + 62, 0), (sweep_x + 152, rect.h), (sweep_x + 88, rect.h)])
+            surface.blit(glow, rect)
+        icon_rect = pygame.Rect(rect.x + 52, rect.y + 26, 116, 96)
+        draw_game_icon(surface, icon_rect, scene, fonts, hovered)
+        draw_text(surface, title, fonts["h3"], WHITE, (rect.x + 24, rect.y + 138))
+        desc_panel = pygame.Rect(rect.x + 18, rect.y + 176, rect.w - 36, 78)
+        rounded_rect(surface, desc_panel, (14, 20, 34), 12, 1, lerp_color((62, 76, 104), (132, 112, 66), t))
+        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-20, -16), 4, 3)
+        cta = pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44)
+        if t > 0.03:
+            cta_glow = pygame.Surface((cta.w + 30, cta.h + 24), pygame.SRCALPHA)
+            pygame.draw.rect(cta_glow, (255, 210, 112, int(72 * t)), pygame.Rect(15, 12, cta.w, cta.h), border_radius=12)
+            surface.blit(cta_glow, (cta.x - 15, cta.y - 12))
+
+    def draw(self, surface):
+        self.draw_lobby_background(surface)
+        self.draw_lobby_header(surface)
         mouse = pygame.mouse.get_pos()
         for rect, scene, title, desc, icon in self.card_rects:
-            hovered = rect.collidepoint(mouse)
-            color = (34, 43, 64) if hovered else PANEL
-            border = GOLD if hovered else (71, 84, 112)
-            rounded_rect(surface, rect, color, 16, 2, border)
-            hover_image = self.app.images.get("blackjack_hover")
-            if scene == "blackjack" and hovered and hover_image:
-                blit_cover(surface, hover_image, rect.inflate(-4, -4), 92)
-                overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
-                overlay.fill((9, 13, 24, 84))
-                surface.blit(overlay, rect)
-            icon_rect = pygame.Rect(rect.x + 52, rect.y + 26, 116, 96)
-            draw_game_icon(surface, icon_rect, scene, fonts, hovered)
-            draw_text(surface, title, fonts["h3"], WHITE, (rect.x + 24, rect.y + 138))
-            desc_panel = pygame.Rect(rect.x + 18, rect.y + 176, rect.w - 36, 78)
-            rounded_rect(surface, desc_panel, (17, 23, 38), 12, 1, (62, 76, 104))
-            draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-20, -16), 4, 3)
+            self.draw_menu_card(surface, rect, scene, title, desc, rect.collidepoint(mouse))
 
 
 class BlackjackScene(CasinoGameScene):
