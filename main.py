@@ -215,6 +215,20 @@ def draw_game_icon(surface, rect, scene, fonts, hovered=False):
                 rounded_rect(surface, cell, (37, 50, 77), 5, 1, (83, 98, 128))
         draw_diamond(surface, rect.center, 20, (90, 220, 184), GOLD_2, 2)
         draw_diamond(surface, rect.center, 9, (206, 255, 239))
+    elif scene == "plinko":
+        center_x = rect.centerx
+        top_y = rect.y + 22
+        for row in range(4):
+            for col in range(row + 1):
+                x = center_x + int((col - row / 2) * 22)
+                y = top_y + row * 15
+                pygame.draw.circle(surface, GOLD_2, (x, y), 4)
+                pygame.draw.circle(surface, (255, 255, 255), (x - 1, y - 1), 1)
+        for i, mult in enumerate(["3x", "1x", "3x"]):
+            bucket = pygame.Rect(rect.x + 21 + i * 25, rect.y + 70, 22, 14)
+            rounded_rect(surface, bucket, (35, 53, 77), 4, 1, GOLD if i != 1 else (83, 98, 128))
+            draw_text(surface, mult, fonts["tiny"], GOLD_2 if i != 1 else WHITE, bucket.center, "center")
+        pygame.draw.circle(surface, (236, 62, 78), (center_x, rect.y + 14), 8)
 
 
 @dataclass
@@ -341,11 +355,12 @@ class MenuScene(Scene):
             ("dice", "Dice", "Aposte no total dos dados: baixo, alto, par, ímpar ou sete.", "dice"),
             ("roulette", "Roleta", "Escolha número, cor, paridade, faixa ou dúzia na mesa 0-36.", "wheel"),
             ("slots", "Slots", "Gire cinco rolos e busque sequências nas linhas premiadas.", "reels"),
+            ("plinko", "Plinko", "Solte a bola nos pinos e acerte buckets multiplicadores.", "pins"),
             ("mines", "Mines", "Revele diamantes, evite minas e saque no melhor multiplicador.", "mine"),
         ]
         self.card_rects = []
-        start_x, start_y = 72, 360
-        card_w, card_h, gap = 220, 320, 24
+        start_x, start_y = 43, 360
+        card_w, card_h, gap = 180, 320, 18
         for i, (scene, title, desc, icon) in enumerate(games):
             rect = pygame.Rect(start_x + i * (card_w + gap), start_y, card_w, card_h)
             self.card_rects.append((rect, scene, title, desc, icon))
@@ -434,7 +449,7 @@ class MenuScene(Scene):
             sweep_x = int(-rect.w * 0.5 + ((self.time * 170) % (rect.w * 1.8)))
             pygame.draw.polygon(glow, (255, 235, 170, int(34 * t)), [(sweep_x, 0), (sweep_x + 62, 0), (sweep_x + 152, rect.h), (sweep_x + 88, rect.h)])
             surface.blit(glow, rect)
-        icon_rect = pygame.Rect(rect.x + 52, rect.y + 26, 116, 96)
+        icon_rect = pygame.Rect(rect.x + (rect.w - 116) // 2, rect.y + 26, 116, 96)
         draw_game_icon(surface, icon_rect, scene, fonts, hovered)
         draw_text(surface, title, fonts["h3"], WHITE, (rect.x + 24, rect.y + 138))
         desc_panel = pygame.Rect(rect.x + 18, rect.y + 176, rect.w - 36, 78)
@@ -993,6 +1008,11 @@ class RouletteScene(CasinoGameScene):
 
 
 class SlotsScene(CasinoGameScene):
+    reel_cell_w = 116
+    reel_cell_h = 108
+    reel_gap = 10
+    reel_tape_size = 34
+    reel_target_index = 8
     symbols = [
         ("67", 12, (255, 224, 119), 6),
         ("AURA", 8, (118, 212, 255), 9),
@@ -1014,12 +1034,95 @@ class SlotsScene(CasinoGameScene):
         super().__init__(app)
         self.grid = [[self.pick_symbol()[0] for _ in range(5)] for _ in range(3)]
         self.spinning = 0.0
-        self.reel_stop = [0, 0, 0, 0, 0]
+        self.reels = [self.create_idle_reel(col) for col in range(5)]
         self.message = "Gire os rolos. Sequências da esquerda pagam."
         self.last_lines = []
 
     def can_change_bet(self):
         return self.spinning <= 0
+
+    def reel_step(self):
+        return self.reel_cell_h + self.reel_gap
+
+    def random_symbol_name(self):
+        return self.pick_symbol()[0]
+
+    def create_tape(self, visible_symbols=None, target_symbols=None):
+        tape = [self.random_symbol_name() for _ in range(self.reel_tape_size)]
+        if visible_symbols:
+            for i, symbol in enumerate(visible_symbols):
+                tape[i] = symbol
+        if target_symbols:
+            for i, symbol in enumerate(target_symbols):
+                tape[self.reel_target_index + i] = symbol
+        return tape
+
+    def create_idle_reel(self, col):
+        visible = [self.grid[row][col] for row in range(3)]
+        return {
+            "symbols": self.create_tape(visible_symbols=visible),
+            "offset": 0.0,
+            "speed": 0.0,
+            "stopping": False,
+            "target": visible,
+            "target_offset": 0.0,
+            "start_offset": 0.0,
+            "elapsed": 0.0,
+            "duration": 0.0,
+            "state": "idle",
+            "stop_flash": 0.0,
+        }
+
+    def current_reel_visible(self, reel):
+        step = self.reel_step()
+        base_index = int(reel["offset"] // step)
+        return [reel["symbols"][(base_index + row) % len(reel["symbols"])] for row in range(3)]
+
+    def prepare_reel_spin(self, col, target_symbols):
+        step = self.reel_step()
+        reel = self.reels[col]
+        current_visible = self.current_reel_visible(reel)
+        tape = self.create_tape(visible_symbols=current_visible, target_symbols=target_symbols)
+        current_offset = 0.0
+        cycle = len(tape) * step
+        target_base = self.reel_target_index * step
+        cycles_to_clear_current = max(0, math.floor((current_offset - target_base) / cycle) + 1)
+        target_offset = target_base + (cycles_to_clear_current + 1 + col) * cycle
+        duration = 1.75 + col * 0.32
+        reel.update(
+            {
+                "symbols": tape,
+                "offset": current_offset,
+                "speed": 0.0,
+                "stopping": True,
+                "target": target_symbols,
+                "target_offset": target_offset,
+                "start_offset": current_offset,
+                "elapsed": 0.0,
+                "duration": duration,
+                "state": "spinning",
+                "stop_flash": 0.0,
+            }
+        )
+
+    def update_reel(self, reel, dt):
+        if reel["state"] != "spinning":
+            return False
+        reel["elapsed"] += dt
+        progress = clamp(reel["elapsed"] / reel["duration"], 0.0, 1.0)
+        eased = 1 - (1 - progress) ** 3
+        settle = clamp((progress - 0.78) / 0.22, 0.0, 1.0)
+        bounce = math.sin(settle * math.pi) * (1 - settle) * self.reel_step() * 0.26
+        previous = reel["offset"]
+        reel["offset"] = reel["start_offset"] + (reel["target_offset"] - reel["start_offset"]) * eased + bounce
+        reel["speed"] = (reel["offset"] - previous) / dt if dt > 0 else 0.0
+        if progress >= 1:
+            reel["offset"] = reel["target_offset"]
+            reel["speed"] = 0.0
+            reel["stopping"] = False
+            reel["state"] = "settled"
+            reel["stop_flash"] = 0.42
+        return reel["state"] == "spinning"
 
     def pick_symbol(self):
         total = sum(weight for _, _, _, weight in self.symbols)
@@ -1047,20 +1150,27 @@ class SlotsScene(CasinoGameScene):
         if self.spinning > 0 or self.app.balance < self.bet:
             return
         self.app.balance -= self.bet
-        self.spinning = 1.8
-        self.reel_stop = [1.0 + i * 0.18 for i in range(5)]
+        final_grid = [[self.pick_symbol()[0] for _ in range(5)] for _ in range(3)]
+        self.grid = final_grid
+        for col in range(5):
+            target_symbols = [final_grid[row][col] for row in range(3)]
+            self.prepare_reel_spin(col, target_symbols)
+        self.spinning = max(reel["duration"] for reel in self.reels)
         self.last_lines = []
         self.message = "Rolos girando..."
 
     def update(self, dt):
+        any_spinning = False
+        for reel in self.reels:
+            if self.update_reel(reel, dt):
+                any_spinning = True
+            if reel["stop_flash"] > 0:
+                reel["stop_flash"] = max(0.0, reel["stop_flash"] - dt)
         if self.spinning > 0:
-            self.spinning -= dt
-            for col in range(5):
-                if self.reel_stop[col] > 0:
-                    self.reel_stop[col] -= dt
-                    for row in range(3):
-                        self.grid[row][col] = self.pick_symbol()[0]
-            if self.spinning <= 0:
+            if any_spinning:
+                self.spinning = max(max(0.0, reel["duration"] - reel["elapsed"]) for reel in self.reels)
+            else:
+                self.spinning = 0.0
                 self.finish_spin()
 
     def finish_spin(self):
@@ -1119,6 +1229,34 @@ class SlotsScene(CasinoGameScene):
             draw_diamond(surface, rect.center, 34, color, WHITE, 2)
             draw_text(surface, symbol, self.app.fonts["h3"], (18, 29, 44), rect.center, "center")
 
+    def draw_reel(self, surface, reel, reel_rect):
+        step = self.reel_step()
+        old_clip = surface.get_clip()
+        surface.set_clip(reel_rect)
+        rounded_rect(surface, reel_rect, (15, 19, 31), 12, 1, (52, 62, 86))
+        base_index = int(reel["offset"] // step)
+        fraction = (reel["offset"] % step) / step
+        y_start = reel_rect.y - fraction * step
+        for visual_row in range(-1, 5):
+            symbol_index = (base_index + visual_row) % len(reel["symbols"])
+            symbol = reel["symbols"][symbol_index]
+            y = y_start + visual_row * step
+            rect = pygame.Rect(reel_rect.x, int(y), self.reel_cell_w, self.reel_cell_h)
+            self.draw_symbol(surface, rect, symbol)
+        if reel["state"] == "spinning" and abs(reel["speed"]) > 900:
+            blur_alpha = int(clamp(abs(reel["speed"]) / 6200, 0, 1) * 70)
+            blur = pygame.Surface(reel_rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(blur, (9, 12, 22, blur_alpha), blur.get_rect(), 0)
+            for x in range(14, reel_rect.w, 22):
+                pygame.draw.line(blur, (255, 244, 200, blur_alpha), (x, 10), (x, reel_rect.h - 10), 2)
+            surface.blit(blur, reel_rect)
+        if reel["stop_flash"] > 0:
+            flash = clamp(reel["stop_flash"] / 0.42, 0, 1)
+            flash_layer = pygame.Surface(reel_rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(flash_layer, (*GOLD_2, int(90 * flash)), flash_layer.get_rect(), 3, border_radius=13)
+            surface.blit(flash_layer, reel_rect)
+        surface.set_clip(old_clip)
+
     def draw_paylines(self, surface, slot_rect):
         colors = [GOLD_2, BLUE, RED, GREEN, PURPLE]
         cell_w, cell_h, gap = 116, 108, 10
@@ -1152,10 +1290,9 @@ class SlotsScene(CasinoGameScene):
         rounded_rect(surface, inner, (20, 25, 42), 18, 2, (116, 92, 63))
         cell_w, cell_h, gap = 116, 108, 10
         x0, y0 = slot_rect.x + 63, slot_rect.y + 35
-        for row in range(3):
-            for col in range(5):
-                rect = pygame.Rect(x0 + col * (cell_w + gap), y0 + row * (cell_h + gap), cell_w, cell_h)
-                self.draw_symbol(surface, rect, self.grid[row][col])
+        for col, reel in enumerate(self.reels):
+            reel_rect = pygame.Rect(x0 + col * (cell_w + gap), y0, cell_w, cell_h * 3 + gap * 2)
+            self.draw_reel(surface, reel, reel_rect)
         self.draw_paylines(surface, slot_rect)
         side = pygame.Rect(1060, 152, 144, 414)
         rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
@@ -1165,6 +1302,338 @@ class SlotsScene(CasinoGameScene):
             color = [GOLD_2, BLUE, RED, GREEN, PURPLE][i]
             pygame.draw.line(surface, color, (side.x + 22, y + 20), (side.x + 118, y + 20), 3)
             draw_text(surface, f"Linha {i + 1}", self.app.fonts["small"], WHITE, (side.x + 22, y))
+        msg_rect = pygame.Rect(292, 604, 510, 74)
+        rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
+        draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
+        self.draw_bet_box(surface, 850, 604)
+
+
+class PlinkoScene(CasinoGameScene):
+    rows = 10
+    risk_profiles = {
+        "low": {
+            "label": "Baixo risco",
+            "multipliers": [3.0, 2.0, 1.5, 1.2, 1.0, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0],
+        },
+        "medium": {
+            "label": "Médio risco",
+            "multipliers": [8.0, 4.0, 2.0, 1.4, 0.8, 0.5, 0.8, 1.4, 2.0, 4.0, 8.0],
+        },
+        "high": {
+            "label": "Alto risco",
+            "multipliers": [26.0, 9.0, 4.0, 1.5, 0.3, 0.2, 0.3, 1.5, 4.0, 9.0, 26.0],
+        },
+    }
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.risk = "medium"
+        self.ball_count = 1
+        self.state = "idle"
+        self.message = "Escolha o risco, ajuste a aposta e solte a bola."
+        self.balls = []
+        self.bucket_hits = [0 for _ in range(self.rows + 1)]
+        self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
+        self.prepare_timer = 0.0
+        self.segment_time = 0.17
+        self.result_timer = 0.0
+        self.round_cost = 0
+        self.round_payout = 0
+        self.finished_balls = 0
+
+    def can_change_bet(self):
+        return self.state not in ("preparing", "dropping")
+
+    def board_geometry(self):
+        return {
+            "center_x": 445,
+            "top_y": 184,
+            "row_gap": 31,
+            "pin_gap": 52,
+            "bucket_y": 536,
+        }
+
+    def pin_position(self, row, col):
+        geo = self.board_geometry()
+        x = geo["center_x"] + (col - row / 2) * geo["pin_gap"]
+        y = geo["top_y"] + row * geo["row_gap"]
+        return (x, y)
+
+    def bucket_center(self, index):
+        geo = self.board_geometry()
+        x = geo["center_x"] + (index - self.rows / 2) * geo["pin_gap"]
+        return (x, geo["bucket_y"] - 18)
+
+    def current_multipliers(self):
+        return self.risk_profiles[self.risk]["multipliers"]
+
+    def active_ball_count(self):
+        return sum(1 for ball in self.balls if ball["state"] in ("waiting", "dropping"))
+
+    def build_ui(self):
+        self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
+        self.add_bet_buttons(850, 604)
+        round_ready = self.state not in ("preparing", "dropping")
+        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), f"Soltar {self.ball_count}", self.start_drop, "success", round_ready and self.app.balance >= self.bet * self.ball_count))
+        risk_buttons = [
+            ("low", "Baixo", 878, 214),
+            ("medium", "Médio", 966, 214),
+            ("high", "Alto", 1054, 214),
+        ]
+        for risk, label, x, y in risk_buttons:
+            kind = "primary" if self.risk == risk else "secondary"
+            self.buttons.append(Button(pygame.Rect(x, y, 78, 42), label, lambda r=risk: self.set_risk(r), kind, round_ready))
+        count_buttons = [
+            (1, 878, 310),
+            (5, 966, 310),
+            (10, 1054, 310),
+        ]
+        for count, x, y in count_buttons:
+            kind = "primary" if self.ball_count == count else "secondary"
+            self.buttons.append(Button(pygame.Rect(x, y, 78, 42), str(count), lambda c=count: self.set_ball_count(c), kind, round_ready))
+
+    def set_risk(self, risk):
+        if self.state not in ("preparing", "dropping"):
+            self.risk = risk
+            self.message = f"Perfil selecionado: {self.risk_profiles[risk]['label']}."
+
+    def set_ball_count(self, count):
+        if self.state not in ("preparing", "dropping"):
+            self.ball_count = count
+            self.message = f"Próxima rodada com {count} bola{'s' if count > 1 else ''}."
+
+    def start_drop(self):
+        total_cost = self.bet * self.ball_count
+        if self.state in ("preparing", "dropping") or self.app.balance < total_cost:
+            return
+        self.app.balance -= total_cost
+        self.round_cost = total_cost
+        self.round_payout = 0
+        self.finished_balls = 0
+        self.bucket_hits = [0 for _ in range(self.rows + 1)]
+        self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
+        self.balls = [self.create_ball(i, self.ball_count) for i in range(self.ball_count)]
+        self.prepare_timer = 0.18
+        self.result_timer = 0.0
+        self.state = "preparing"
+        self.message = f"Preparando {self.ball_count} bola{'s' if self.ball_count > 1 else ''}..."
+
+    def generate_path(self):
+        points = []
+        steps = []
+        pin_slots = []
+        geo = self.board_geometry()
+        slot = 0
+        points.append((geo["center_x"], geo["top_y"] - 62))
+        for row in range(self.rows):
+            points.append(self.pin_position(row, slot))
+            pin_slots.append(slot)
+            step = random.choice([0, 1])
+            steps.append(step)
+            slot += step
+        points.append(self.bucket_center(slot))
+        return points, steps, slot, pin_slots
+
+    def create_ball(self, index, total):
+        path_points, path_steps, bucket_index, pin_slots = self.generate_path()
+        multiplier = self.current_multipliers()[bucket_index]
+        payout = int(self.bet * multiplier)
+        colors = [
+            (229, 48, 70),
+            (88, 148, 255),
+            (255, 174, 99),
+            (90, 220, 184),
+            (149, 119, 255),
+        ]
+        delay = index * 0.09
+        start_x, start_y = path_points[0]
+        spread = (index - (total - 1) / 2) * 8
+        path_points = list(path_points)
+        path_points[0] = (start_x + spread, start_y)
+        return {
+            "id": index,
+            "pos": path_points[0],
+            "path_points": path_points,
+            "path_steps": path_steps,
+            "pin_slots": pin_slots,
+            "target_bucket": bucket_index,
+            "multiplier": multiplier,
+            "payout": payout,
+            "elapsed": -delay,
+            "duration": (len(path_points) - 1) * self.segment_time,
+            "state": "waiting",
+            "finished": False,
+            "credited": False,
+            "color": colors[index % len(colors)],
+            "radius": 12 if total <= 5 else 10,
+        }
+
+    def update(self, dt):
+        for i in range(len(self.bucket_flash)):
+            self.bucket_flash[i] = max(0.0, self.bucket_flash[i] - dt)
+        if self.state == "preparing":
+            self.prepare_timer -= dt
+            if self.prepare_timer <= 0:
+                self.state = "dropping"
+                self.message = "As bolas estão quicando pelos pinos..."
+        elif self.state == "dropping":
+            for ball in self.balls:
+                self.update_ball(ball, dt)
+            active = self.active_ball_count()
+            self.message = f"Em queda: {active} | Payout parcial: {br_money(self.round_payout)} fichas."
+            if self.balls and all(ball["finished"] for ball in self.balls):
+                self.finish_round()
+        elif self.state == "result":
+            self.result_timer += dt
+
+    def update_ball(self, ball, dt):
+        if ball["finished"]:
+            return
+        ball["elapsed"] += dt
+        if ball["elapsed"] < 0:
+            ball["state"] = "waiting"
+            return
+        ball["state"] = "dropping"
+        if ball["elapsed"] >= ball["duration"]:
+            ball["pos"] = ball["path_points"][-1]
+            self.finish_ball(ball)
+            return
+        total_segments = len(ball["path_points"]) - 1
+        segment = min(total_segments - 1, int(ball["elapsed"] / self.segment_time))
+        local = (ball["elapsed"] - segment * self.segment_time) / self.segment_time
+        local = clamp(local, 0.0, 1.0)
+        ball["pos"] = self.interpolate_ball(ball, segment, local)
+
+    def interpolate_ball(self, ball, segment, local):
+        x1, y1 = ball["path_points"][segment]
+        x2, y2 = ball["path_points"][segment + 1]
+        eased = local * local * (3 - 2 * local)
+        x = x1 + (x2 - x1) * eased
+        y = y1 + (y2 - y1) * eased
+        arc = math.sin(local * math.pi) * 13
+        wobble = math.sin((segment + 1) * 1.7 + ball["id"] * 0.9 + local * math.pi) * 4 * (1 - abs(local - 0.5))
+        return (x + wobble, y - arc)
+
+    def finish_ball(self, ball):
+        if ball["credited"]:
+            return
+        ball["finished"] = True
+        ball["state"] = "finished"
+        ball["credited"] = True
+        self.app.balance += ball["payout"]
+        self.round_payout += ball["payout"]
+        self.finished_balls += 1
+        bucket = ball["target_bucket"]
+        self.bucket_hits[bucket] += 1
+        self.bucket_flash[bucket] = 0.65
+
+    def finish_round(self):
+        self.state = "result"
+        self.result_timer = 0.0
+        self.message = f"Rodada concluída: {self.finished_balls} bolas, pagamento total de {br_money(self.round_payout)} fichas."
+
+    def active_pin_glow(self, row, col):
+        if self.state != "dropping":
+            return 0.0
+        glow = 0.0
+        for ball in self.balls:
+            if ball["state"] != "dropping" or ball["elapsed"] < 0:
+                continue
+            segment = int(ball["elapsed"] / self.segment_time)
+            local = (ball["elapsed"] - segment * self.segment_time) / self.segment_time
+            pin_row = segment - 1
+            if 0 <= pin_row < self.rows and local < 0.36 and ball["pin_slots"][pin_row] == col and pin_row == row:
+                glow = max(glow, 1 - local / 0.36)
+        return glow
+
+    def draw_pin_board(self, surface, board_rect):
+        rounded_rect(surface, board_rect, (12, 24, 37), 24, 2, (74, 91, 116))
+        inner = board_rect.inflate(-24, -24)
+        rounded_rect(surface, inner, (8, 70, 57), 20, 1, (30, 139, 94))
+        pygame.draw.arc(surface, (224, 184, 95), pygame.Rect(board_rect.x + 74, board_rect.y + 42, board_rect.w - 148, board_rect.h - 78), math.pi, math.tau, 3)
+        for row in range(self.rows):
+            for col in range(row + 1):
+                x, y = self.pin_position(row, col)
+                pulse = self.active_pin_glow(row, col)
+                pygame.draw.circle(surface, (15, 31, 41), (int(x), int(y + 4)), 8)
+                pygame.draw.circle(surface, lerp_color((214, 191, 140), GOLD_2, pulse), (int(x), int(y)), int(5 + pulse * 4))
+                pygame.draw.circle(surface, WHITE, (int(x - 1), int(y - 2)), 2)
+
+    def draw_buckets(self, surface):
+        multipliers = self.current_multipliers()
+        colors = [(44, 90, 80), (54, 102, 82), (75, 110, 78), (93, 113, 72), (105, 100, 68), (121, 78, 72)]
+        for i, mult in enumerate(multipliers):
+            cx, _ = self.bucket_center(i)
+            rect = pygame.Rect(int(cx - 23), 512, 46, 54)
+            distance = abs(i - self.rows / 2) / (self.rows / 2)
+            color = lerp_color(colors[0], (126, 35, 54), distance)
+            selected = self.bucket_hits[i] > 0
+            if selected:
+                pulse = max(self.bucket_flash[i], (math.sin(self.result_timer * 8) + 1) / 2 * 0.45 if self.state == "result" else 0)
+                glow = pygame.Surface((rect.w + 26, rect.h + 26), pygame.SRCALPHA)
+                pygame.draw.rect(glow, (*GOLD_2, int(55 + pulse * 85)), pygame.Rect(13, 13, rect.w, rect.h), border_radius=10)
+                surface.blit(glow, (rect.x - 13, rect.y - 13))
+            rounded_rect(surface, rect, color, 8, 2, GOLD_2 if selected else (84, 99, 128))
+            draw_text(surface, f"{mult:g}x", self.app.fonts["tiny"], WHITE, rect.center, "center")
+            if self.bucket_hits[i] > 1:
+                draw_text(surface, f"x{self.bucket_hits[i]}", self.app.fonts["tiny"], GOLD_2, (rect.centerx, rect.y - 10), "center")
+
+    def draw_ball(self, surface, ball):
+        x, y = ball["pos"]
+        radius = ball["radius"]
+        shadow = pygame.Surface((44, 44), pygame.SRCALPHA)
+        pygame.draw.circle(shadow, (0, 0, 0, 90), (22, 25), radius)
+        surface.blit(shadow, (int(x - 22), int(y - 18)))
+        pygame.draw.circle(surface, ball["color"], (int(x), int(y)), radius)
+        pygame.draw.circle(surface, lerp_color(ball["color"], WHITE, 0.45), (int(x - radius * 0.35), int(y - radius * 0.35)), max(3, radius // 3))
+        pygame.draw.circle(surface, GOLD_2, (int(x), int(y)), radius, 2)
+        if ball["finished"]:
+            draw_text(surface, f"{ball['multiplier']:g}x", self.app.fonts["tiny"], WHITE, (int(x), int(y - 25)), "center")
+
+    def draw_balls(self, surface):
+        if not self.balls:
+            geo = self.board_geometry()
+            idle_ball = {
+                "pos": (geo["center_x"], geo["top_y"] - 62),
+                "radius": 14,
+                "color": (229, 48, 70),
+                "finished": False,
+                "multiplier": 0,
+            }
+            self.draw_ball(surface, idle_ball)
+            return
+        for ball in sorted(self.balls, key=lambda item: item["pos"][1]):
+            if ball["state"] in ("waiting", "dropping", "finished"):
+                self.draw_ball(surface, ball)
+
+    def draw_side_panel(self, surface):
+        side = pygame.Rect(850, 152, 330, 414)
+        rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
+        draw_text(surface, "RISCO", self.app.fonts["tiny"], MUTED, (878, 184))
+        draw_text(surface, self.risk_profiles[self.risk]["label"], self.app.fonts["small"], WHITE, (878, 260))
+        draw_text(surface, "BOLAS", self.app.fonts["tiny"], MUTED, (878, 286))
+        draw_text(surface, f"{self.ball_count} por rodada", self.app.fonts["small"], WHITE, (878, 356))
+        draw_text(surface, "RODADA", self.app.fonts["tiny"], MUTED, (878, 384))
+        launched = len(self.balls) if self.balls else self.ball_count
+        active = self.active_ball_count()
+        draw_text(surface, f"Lançadas: {launched}", self.app.fonts["small"], WHITE, (878, 410))
+        draw_text(surface, f"Em queda: {active}", self.app.fonts["small"], MUTED, (878, 434))
+        draw_text(surface, f"Payout: {br_money(self.round_payout)}", self.app.fonts["small"], GOLD_2, (878, 458))
+        draw_text(surface, f"Custo: {br_money(self.bet * self.ball_count)}", self.app.fonts["small"], MUTED, (878, 482))
+        draw_text(surface, "MULTIPLICADORES", self.app.fonts["tiny"], MUTED, (878, 518))
+        multipliers = self.current_multipliers()
+        best = max(multipliers)
+        center = multipliers[len(multipliers) // 2]
+        draw_text(surface, f"Bordas: até {best:g}x", self.app.fonts["small"], GOLD_2, (878, 540))
+        draw_text(surface, f"Centro: {center:g}x", self.app.fonts["small"], MUTED, (1030, 540))
+
+    def draw(self, surface):
+        self.draw_panel_title(surface, "Plinko", "Solte a bola, acompanhe os quiques e ganhe pelo bucket final.")
+        board_rect = pygame.Rect(70, 132, 748, 458)
+        self.draw_pin_board(surface, board_rect)
+        self.draw_buckets(surface)
+        self.draw_balls(surface)
+        self.draw_side_panel(surface)
         msg_rect = pygame.Rect(292, 604, 510, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
@@ -1350,6 +1819,7 @@ class CasinoApp:
             "dice": DiceScene(self),
             "roulette": RouletteScene(self),
             "slots": SlotsScene(self),
+            "plinko": PlinkoScene(self),
             "mines": MinesScene(self),
         }
         self.scene_name = "menu"
