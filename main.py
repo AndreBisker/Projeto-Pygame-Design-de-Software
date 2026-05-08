@@ -241,6 +241,19 @@ def draw_game_icon(surface, rect, scene, fonts, hovered=False):
             rounded_rect(surface, bucket, (35, 53, 77), 4, 1, GOLD if i != 1 else (83, 98, 128))
             draw_text(surface, mult, fonts["tiny"], GOLD_2 if i != 1 else WHITE, bucket.center, "center")
         pygame.draw.circle(surface, (236, 62, 78), (center_x, rect.y + 14), 8)
+    elif scene == "coinflip":
+        pygame.draw.circle(surface, GOLD_2, rect.center, 34)
+        pygame.draw.circle(surface, (176, 111, 36), rect.center, 28, 4)
+        draw_text(surface, "Ego", fonts["small"], (82, 45, 18), rect.center, "center")
+        for i in range(3):
+            pygame.draw.circle(surface, (255, 246, 201), (rect.x + 22 + i * 32, rect.y + 20 + i * 18), 3)
+    elif scene == "crash":
+        base = pygame.Rect(rect.x + 18, rect.y + 70, rect.w - 36, 8)
+        pygame.draw.rect(surface, (76, 91, 118), base, border_radius=4)
+        points = [(rect.x + 24, rect.y + 68), (rect.x + 45, rect.y + 58), (rect.x + 62, rect.y + 43), (rect.x + 90, rect.y + 22)]
+        pygame.draw.lines(surface, GREEN, False, points, 5)
+        pygame.draw.circle(surface, RED, points[-1], 7)
+        draw_text(surface, "x", fonts["h3"], GOLD_2, (rect.x + 48, rect.y + 28), "center")
 
 
 @dataclass
@@ -315,7 +328,7 @@ class Scene:
 
 class CasinoGameScene(Scene):
     min_bet = 25
-    max_bet = 1000
+    max_bet = 10000
 
     def __init__(self, app):
         super().__init__(app)
@@ -339,13 +352,16 @@ class CasinoGameScene(Scene):
         enabled = self.can_change_bet()
         self.buttons.extend(
             [
-                Button(pygame.Rect(x + 180, y + 15, 44, 44), "-", lambda: self.change_bet(-25), "secondary", enabled),
-                Button(pygame.Rect(x + 232, y + 15, 44, 44), "+", lambda: self.change_bet(25), "secondary", enabled),
-                Button(pygame.Rect(x + 284, y + 15, 72, 44), "MAX", self.maximize_bet, "ghost", enabled),
+                Button(pygame.Rect(x + 166, y + 15, 44, 44), "-", lambda: self.change_bet(-25), "secondary", enabled),
+                Button(pygame.Rect(x + 214, y + 15, 44, 44), "+", lambda: self.change_bet(25), "secondary", enabled),
+                Button(pygame.Rect(x + 266, y + 15, 88, 44), "ALL IN", self.all_in_bet, "ghost", enabled),
             ]
         )
 
     def maximize_bet(self):
+        self.all_in_bet()
+
+    def all_in_bet(self):
         if not self.can_change_bet():
             return
         self.bet = min(self.max_bet, max(self.min_bet, self.app.balance))
@@ -363,18 +379,22 @@ class MenuScene(Scene):
     def build_ui(self):
         self.buttons = []
         games = [
-            ("blackjack", "Blackjack", "Some cartas, chegue a 21 e vença o dealer sem estourar.", "cards"),
-            ("dice", "Dice", "Aposte no total dos dados: baixo, alto, par, ímpar ou sete.", "dice"),
-            ("roulette", "Roleta", "Escolha número, cor, paridade, faixa ou dúzia na mesa 0-36.", "wheel"),
-            ("slots", "Slots", "Gire cinco rolos e busque sequências nas linhas premiadas.", "reels"),
-            ("plinko", "Plinko", "Solte a bola nos pinos e acerte buckets multiplicadores.", "pins"),
-            ("mines", "Mines", "Revele diamantes, evite minas e saque no melhor multiplicador.", "mine"),
+            ("blackjack", "Blackjack", "Faça 21, dobre ou divida pares contra o dealer.", "cards"),
+            ("dice", "Dice", "Dados animados com apostas em soma, paridade e sete.", "dice"),
+            ("roulette", "Roleta", "Mesa 0-36 com número, cor, faixa e dúzias.", "wheel"),
+            ("slots", "Slots", "Cinco rolos com 67, V-Bucks, BOB e cereja.", "reels"),
+            ("plinko", "Plinko", "Escolha risco e colunas para buscar buckets altos.", "pins"),
+            ("mines", "Mines", "Abra gemas, evite minas e saque no multiplicador.", "mine"),
+            ("coinflip", "Aura/Ego", "Escolha Aura ou Ego e acompanhe a moeda girar.", "coin"),
+            ("crash", "Crash 67", "Saque antes do multiplicador explodir.", "rocket"),
         ]
         self.card_rects = []
-        start_x, start_y = 43, 360
-        card_w, card_h, gap = 180, 320, 18
+        start_x, start_y = 52, 340
+        card_w, card_h, gap_x, gap_y = 276, 166, 18, 12
         for i, (scene, title, desc, icon) in enumerate(games):
-            rect = pygame.Rect(start_x + i * (card_w + gap), start_y, card_w, card_h)
+            col = i % 4
+            row = i // 4
+            rect = pygame.Rect(start_x + col * (card_w + gap_x), start_y + row * (card_h + gap_y), card_w, card_h)
             self.card_rects.append((rect, scene, title, desc, icon))
             self.buttons.append(Button(pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44), "Jogar", lambda s=scene: self.app.set_scene(s), "primary"))
         self.buttons.append(Button(pygame.Rect(1030, 268, 170, 46), "Recarregar", self.app.refill_balance, "secondary"))
@@ -461,13 +481,14 @@ class MenuScene(Scene):
             sweep_x = int(-rect.w * 0.5 + ((self.time * 170) % (rect.w * 1.8)))
             pygame.draw.polygon(glow, (255, 235, 170, int(34 * t)), [(sweep_x, 0), (sweep_x + 62, 0), (sweep_x + 152, rect.h), (sweep_x + 88, rect.h)])
             surface.blit(glow, rect)
-        icon_rect = pygame.Rect(rect.x + (rect.w - 116) // 2, rect.y + 26, 116, 96)
+        compact = rect.h < 220
+        icon_rect = pygame.Rect(rect.x + 16, rect.y + 22, 96 if compact else 116, 72 if compact else 96)
         draw_game_icon(surface, icon_rect, scene, fonts, hovered)
-        title_rect = pygame.Rect(rect.x + 12, rect.y + 132, rect.w - 24, 34)
+        title_rect = pygame.Rect(rect.x + (124 if compact else 12), rect.y + (20 if compact else 132), rect.w - (140 if compact else 24), 34)
         draw_centered_wrapped(surface, title, fonts["h3"], WHITE, title_rect, 2)
-        desc_panel = pygame.Rect(rect.x + 14, rect.y + 174, rect.w - 28, 86)
+        desc_panel = pygame.Rect(rect.x + (124 if compact else 14), rect.y + (58 if compact else 174), rect.w - (140 if compact else 28), 48 if compact else 86)
         rounded_rect(surface, desc_panel, (14, 20, 34), 12, 1, lerp_color((62, 76, 104), (132, 112, 66), t))
-        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-18, -14), 4, 3)
+        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-14, -10), 4, 2 if compact else 3)
         cta = pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44)
         if t > 0.03:
             cta_glow = pygame.Surface((cta.w + 30, cta.h + 24), pygame.SRCALPHA)
@@ -494,6 +515,10 @@ class BlackjackScene(CasinoGameScene):
         self.phase = "ready"
         self.message = "Ajuste a aposta e distribua as cartas."
         self.stake = 0
+        self.player_hands = []
+        self.hand_stakes = []
+        self.active_hand = 0
+        self.hand_status = []
         self.card_anim = 0.0
         self.card_anim_owner = None
 
@@ -517,14 +542,21 @@ class BlackjackScene(CasinoGameScene):
         if self.phase == "player":
             self.buttons.extend(
                 [
-                    Button(pygame.Rect(64, 604, 126, 52), "Carta", self.hit, "blue"),
-                    Button(pygame.Rect(204, 604, 126, 52), "Parar", self.stand, "success"),
+                    Button(pygame.Rect(64, 604, 112, 52), "Carta", self.hit, "blue"),
+                    Button(pygame.Rect(188, 604, 112, 52), "Parar", self.stand, "success"),
                     Button(
-                        pygame.Rect(344, 604, 126, 52),
+                        pygame.Rect(312, 604, 112, 52),
                         "Dobrar",
                         self.double_down,
                         "primary",
-                        len(self.player) == 2 and self.app.balance >= self.stake,
+                        len(self.current_hand()) == 2 and self.app.balance >= self.current_stake(),
+                    ),
+                    Button(
+                        pygame.Rect(436, 604, 92, 52),
+                        "Split",
+                        self.split_hand,
+                        "ghost",
+                        self.can_split(),
                     ),
                 ]
             )
@@ -538,6 +570,37 @@ class BlackjackScene(CasinoGameScene):
             self.make_deck()
         return self.deck.pop()
 
+    def current_hand(self):
+        if not self.player_hands:
+            return self.player
+        return self.player_hands[self.active_hand]
+
+    def current_stake(self):
+        if not self.hand_stakes:
+            return self.stake
+        return self.hand_stakes[self.active_hand]
+
+    def card_split_value(self, card):
+        rank, _ = card
+        if rank == "A":
+            return 11
+        if rank in ("10", "J", "Q", "K"):
+            return 10
+        return int(rank)
+
+    def can_split(self):
+        hand = self.current_hand()
+        return (
+            self.phase == "player"
+            and len(self.player_hands) == 1
+            and len(hand) == 2
+            and self.card_split_value(hand[0]) == self.card_split_value(hand[1])
+            and self.app.balance >= self.current_stake()
+        )
+
+    def sync_player_alias(self):
+        self.player = self.current_hand() if self.player_hands else []
+
     def start_hand(self):
         if self.app.balance < self.bet:
             self.message = "Saldo insuficiente para esta aposta."
@@ -547,10 +610,14 @@ class BlackjackScene(CasinoGameScene):
         self.make_deck()
         self.player = [self.draw_card_from_deck(), self.draw_card_from_deck()]
         self.dealer = [self.draw_card_from_deck(), self.draw_card_from_deck()]
+        self.player_hands = [self.player]
+        self.hand_stakes = [self.stake]
+        self.active_hand = 0
+        self.hand_status = [""]
         self.phase = "player"
         self.card_anim = 0.45
         self.card_anim_owner = "player"
-        self.message = "Sua vez: peça carta, pare ou dobre."
+        self.message = "Sua vez: peça carta, pare, dobre ou faça split se possível."
         self.resolve_naturals()
 
     def resolve_naturals(self):
@@ -588,51 +655,99 @@ class BlackjackScene(CasinoGameScene):
     def hit(self):
         if self.phase != "player":
             return
-        self.player.append(self.draw_card_from_deck())
+        hand = self.current_hand()
+        hand.append(self.draw_card_from_deck())
+        self.sync_player_alias()
         self.card_anim = 0.35
         self.card_anim_owner = "player"
-        value = self.hand_value(self.player)
+        value = self.hand_value(hand)
         if value > 21:
-            self.phase = "result"
-            self.message = f"Estourou com {value}. A banca fica com a aposta."
+            self.hand_status[self.active_hand] = f"estourou com {value}"
+            self.message = f"Mão {self.active_hand + 1} estourou com {value}."
+            self.advance_hand()
         elif value == 21:
             self.stand()
         else:
-            self.message = f"Sua mão vale {value}. Continue ou pare."
+            self.message = f"Mão {self.active_hand + 1} vale {value}. Continue ou pare."
 
     def stand(self):
         if self.phase != "player":
             return
+        self.hand_status[self.active_hand] = "parou"
+        self.advance_hand()
+
+    def advance_hand(self):
+        if self.active_hand + 1 < len(self.player_hands):
+            self.active_hand += 1
+            self.sync_player_alias()
+            value = self.hand_value(self.current_hand())
+            self.message = f"Agora jogue a mão {self.active_hand + 1}, valendo {value}."
+            return
+        self.resolve_dealer()
+
+    def resolve_dealer(self):
         while self.hand_value(self.dealer) < 17:
             self.dealer.append(self.draw_card_from_deck())
             self.card_anim = 0.35
             self.card_anim_owner = "dealer"
-        player_value = self.hand_value(self.player)
         dealer_value = self.hand_value(self.dealer)
         self.phase = "result"
-        if dealer_value > 21 or player_value > dealer_value:
-            payout = self.stake * 2
-            self.app.balance += payout
-            self.message = f"Você venceu {player_value} x {dealer_value}. Pagamento: {br_money(payout)}."
-        elif player_value == dealer_value:
-            self.app.balance += self.stake
-            self.message = f"Empate em {player_value}. Aposta devolvida."
-        else:
-            self.message = f"Dealer venceu {dealer_value} x {player_value}."
+        summaries = []
+        total_payout = 0
+        for index, hand in enumerate(self.player_hands):
+            player_value = self.hand_value(hand)
+            stake = self.hand_stakes[index]
+            if player_value > 21:
+                summaries.append(f"M{index + 1}: perdeu ({player_value})")
+            elif dealer_value > 21 or player_value > dealer_value:
+                payout = stake * 2
+                total_payout += payout
+                summaries.append(f"M{index + 1}: venceu {player_value}x{dealer_value}")
+            elif player_value == dealer_value:
+                total_payout += stake
+                summaries.append(f"M{index + 1}: empate {player_value}")
+            else:
+                summaries.append(f"M{index + 1}: perdeu {player_value}x{dealer_value}")
+        if total_payout:
+            self.app.balance += total_payout
+        self.message = f"{'; '.join(summaries)}. Pagamento: {br_money(total_payout)}."
 
     def double_down(self):
-        if self.phase != "player" or len(self.player) != 2 or self.app.balance < self.stake:
+        hand = self.current_hand()
+        if self.phase != "player" or len(hand) != 2 or self.app.balance < self.current_stake():
             return
-        self.app.balance -= self.stake
-        self.stake *= 2
-        self.player.append(self.draw_card_from_deck())
+        extra = self.current_stake()
+        self.app.balance -= extra
+        self.hand_stakes[self.active_hand] += extra
+        self.stake = sum(self.hand_stakes)
+        hand.append(self.draw_card_from_deck())
+        self.sync_player_alias()
         self.card_anim = 0.35
         self.card_anim_owner = "player"
-        if self.hand_value(self.player) > 21:
-            self.phase = "result"
-            self.message = f"Dobrou e estourou com {self.hand_value(self.player)}."
+        if self.hand_value(hand) > 21:
+            self.hand_status[self.active_hand] = f"dobrou e estourou com {self.hand_value(hand)}"
+            self.message = f"Mão {self.active_hand + 1} dobrou e estourou."
         else:
-            self.stand()
+            self.hand_status[self.active_hand] = "dobrou"
+        self.advance_hand()
+
+    def split_hand(self):
+        if not self.can_split():
+            return
+        original = self.current_hand()
+        stake = self.current_stake()
+        self.app.balance -= stake
+        first = [original[0], self.draw_card_from_deck()]
+        second = [original[1], self.draw_card_from_deck()]
+        self.player_hands = [first, second]
+        self.hand_stakes = [stake, stake]
+        self.hand_status = ["", ""]
+        self.active_hand = 0
+        self.stake = sum(self.hand_stakes)
+        self.sync_player_alias()
+        self.card_anim = 0.35
+        self.card_anim_owner = "player"
+        self.message = "Split feito! Jogue primeiro a mão 1."
 
     def draw_card(self, surface, card, x, y, hidden=False, animate=False):
         card_surface = pygame.Surface((98, 136), pygame.SRCALPHA)
@@ -664,12 +779,15 @@ class BlackjackScene(CasinoGameScene):
         else:
             surface.blit(card_surface, (x - 3, y - 3))
 
-    def draw_hand(self, surface, title, hand, x, y, hide_first=False):
-        draw_text(surface, title, self.app.fonts["body"], MUTED, (x, y - 34))
+    def draw_hand(self, surface, title, hand, x, y, hide_first=False, active=False, spacing=96):
+        title_color = GOLD_2 if active else MUTED
+        draw_text(surface, title, self.app.fonts["body"], title_color, (x, y - 34))
+        if active:
+            pygame.draw.line(surface, GOLD_2, (x, y - 7), (x + 220, y - 7), 3)
         for i, card in enumerate(hand):
             owner = "dealer" if title == "Dealer" else "player"
             animate = self.card_anim_owner == owner and i == len(hand) - 1
-            self.draw_card(surface, card, x + i * 96, y, hidden=hide_first and i == 0, animate=animate)
+            self.draw_card(surface, card, x + i * spacing, y, hidden=hide_first and i == 0, animate=animate)
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Blackjack", "Chegue a 21 sem estourar. Blackjack paga 3:2.")
@@ -685,13 +803,21 @@ class BlackjackScene(CasinoGameScene):
             pygame.draw.circle(surface, (210, 176, 94), (cx, 529), 22, 1)
         dealer_hidden = self.phase == "player"
         self.draw_hand(surface, "Dealer", self.dealer, 154, 244, dealer_hidden)
-        self.draw_hand(surface, "Você", self.player, 154, 412, False)
-        player_value = self.hand_value(self.player) if self.player else 0
+        hands = self.player_hands if self.player_hands else ([self.player] if self.player else [])
+        if len(hands) > 1:
+            for index, hand in enumerate(hands):
+                x = 154 + index * 300
+                title = f"Mão {index + 1} ({self.hand_value(hand)})"
+                self.draw_hand(surface, title, hand, x, 412, False, self.phase == "player" and index == self.active_hand, 72)
+        else:
+            self.draw_hand(surface, "Você", self.player, 154, 412, False)
+        player_value = self.hand_value(self.current_hand()) if hands else 0
         dealer_value = self.hand_value(self.dealer) if self.dealer and not dealer_hidden else "?"
         info_rect = pygame.Rect(760, 228, 360, 248)
         rounded_rect(surface, info_rect, (18, 26, 42), 18, 1, (80, 97, 124))
         draw_text(surface, "PLACAR DA MÃO", self.app.fonts["tiny"], MUTED, (info_rect.x + 24, info_rect.y + 22))
-        draw_text(surface, f"Você: {player_value}", self.app.fonts["h2"], WHITE, (info_rect.x + 24, info_rect.y + 58))
+        label = "Mão ativa" if len(hands) > 1 and self.phase == "player" else "Você"
+        draw_text(surface, f"{label}: {player_value}", self.app.fonts["h2"], WHITE, (info_rect.x + 24, info_rect.y + 58))
         draw_text(surface, f"Dealer: {dealer_value}", self.app.fonts["h2"], WHITE, (info_rect.x + 24, info_rect.y + 108))
         draw_text(surface, f"Mesa: {br_money(self.stake)} fichas", self.app.fonts["body"], GOLD_2, (info_rect.x + 24, info_rect.y + 166))
         msg_rect = pygame.Rect(502, 604, 320, 74)
@@ -710,6 +836,8 @@ class DiceScene(CasinoGameScene):
         self.roll_duration = 1.35
         self.die_angles = [0, 0]
         self.die_offsets = [(0, 0), (0, 0)]
+        self.roll_trails = [[], []]
+        self.table_shake = 0.0
         self.pending_result = None
         self.message = "Escolha o mercado e role os dados."
 
@@ -740,32 +868,42 @@ class DiceScene(CasinoGameScene):
         if self.rolling > 0 or self.app.balance < self.bet:
             return
         self.app.balance -= self.bet
-        self.roll_duration = 1.35
+        self.roll_duration = 1.75
         self.roll_elapsed = 0.0
         self.rolling = self.roll_duration
         self.pending_result = [random.randint(1, 6), random.randint(1, 6)]
-        self.die_angles = [random.uniform(-25, 25), random.uniform(-25, 25)]
-        self.message = "Os dados estão rolando..."
+        self.die_angles = [random.uniform(-80, 80), random.uniform(-80, 80)]
+        self.roll_trails = [[], []]
+        self.table_shake = 1.0
+        self.message = "Os dados saltaram na mesa..."
 
     def update(self, dt):
         if self.rolling > 0:
             self.roll_elapsed += dt
             self.rolling -= dt
-            self.dice = [random.randint(1, 6), random.randint(1, 6)]
             progress = clamp(self.roll_elapsed / self.roll_duration, 0, 1)
-            energy = (1 - progress) ** 2.35
-            ease = 1 - (1 - progress) ** 3
+            energy = (1 - progress) ** 1.85
+            ease = 1 - (1 - progress) ** 4
+            self.table_shake = energy
             for i in range(2):
-                spin = (1 - ease) * 540 * (1 if i == 0 else -1)
-                wobble = math.sin((self.roll_elapsed * 22) + i * 1.7) * 20 * energy
-                hop = abs(math.sin((self.roll_elapsed * 15) + i * 0.9)) * 48 * energy
-                slide = math.cos(self.roll_elapsed * 12 + i * 1.2) * 30 * energy
+                if random.random() < 0.45 + energy * 0.35:
+                    self.dice[i] = random.randint(1, 6)
+                direction = 1 if i == 0 else -1
+                spin = direction * (1440 * (1 - ease) + 120 * math.sin(self.roll_elapsed * 16 + i))
+                wobble = math.sin((self.roll_elapsed * 28) + i * 1.7) * 28 * energy
+                hop = abs(math.sin((self.roll_elapsed * 13) + i * 0.9)) * 82 * energy
+                slide = math.cos(self.roll_elapsed * 9 + i * 1.2) * 86 * energy
+                drift = direction * math.sin(progress * math.pi) * 60
                 self.die_angles[i] = spin + wobble
-                self.die_offsets[i] = (int(slide), -int(hop))
+                self.die_offsets[i] = (int(slide + drift), -int(hop))
+                base_x = 450 if i == 0 else 690
+                self.roll_trails[i].append((base_x + 67 + self.die_offsets[i][0], 235 + 67 + self.die_offsets[i][1], energy))
+                self.roll_trails[i] = self.roll_trails[i][-10:]
             if self.rolling <= 0:
                 self.dice = self.pending_result
                 self.die_angles = [0, 0]
                 self.die_offsets = [(0, 0), (0, 0)]
+                self.table_shake = 0.0
                 self.finish_roll()
 
     def finish_roll(self):
@@ -814,10 +952,19 @@ class DiceScene(CasinoGameScene):
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Dice", "Dois dados, aposta rápida e pagamentos claros.")
-        stage = pygame.Rect(80, 178, 1120, 304)
+        shake_x = int(math.sin(self.roll_elapsed * 40) * 5 * self.table_shake)
+        stage = pygame.Rect(80 + shake_x, 178, 1120, 304)
         rounded_rect(surface, stage, PANEL, 24, 2, (75, 90, 116))
-        pygame.draw.ellipse(surface, (9, 13, 24, 92), pygame.Rect(420, 370, 210, 38))
-        pygame.draw.ellipse(surface, (9, 13, 24, 92), pygame.Rect(660, 370, 210, 38))
+        felt = stage.inflate(-34, -30)
+        rounded_rect(surface, felt, (12, 89, 67), 22, 2, (34, 138, 102))
+        for i, trail in enumerate(self.roll_trails):
+            for j, (x, y, energy) in enumerate(trail):
+                alpha = int((j + 1) / max(1, len(trail)) * 46 * energy)
+                ghost = pygame.Surface((60, 60), pygame.SRCALPHA)
+                pygame.draw.circle(ghost, (255, 244, 210, alpha), (30, 30), 13 + j)
+                surface.blit(ghost, (int(x - 30), int(y - 30)))
+        pygame.draw.ellipse(surface, (9, 13, 24, 112), pygame.Rect(420 + self.die_offsets[0][0] // 4, 372, 210, 40))
+        pygame.draw.ellipse(surface, (9, 13, 24, 112), pygame.Rect(660 + self.die_offsets[1][0] // 4, 372, 210, 40))
         self.draw_die(surface, pygame.Rect(450, 235, 134, 134), self.dice[0], self.die_angles[0], self.die_offsets[0])
         self.draw_die(surface, pygame.Rect(690, 235, 134, 134), self.dice[1], self.die_angles[1], self.die_offsets[1])
         total = sum(self.dice)
@@ -1058,13 +1205,13 @@ class SlotsScene(CasinoGameScene):
     reel_tape_size = 34
     reel_target_index = 8
     symbols = [
-        ("7", 12, (255, 95, 95), 6),
-        ("67", 8, (255, 224, 119), 9),
-        ("BOB", 6, (230, 230, 238), 11),
-        ("6", 5, (118, 212, 255), 13),
-        ("DIAMOND", 4, (86, 184, 255), 16),
-        ("CHERRY", 3, (255, 84, 105), 20),
-        ("HORSESHOE", 2, (255, 199, 91), 25),
+        ("67", 14, (255, 224, 119), 6),
+        ("7", 11, (255, 95, 95), 8),
+        ("VBUCKS", 9, (95, 210, 255), 10),
+        ("BOB", 7, (230, 230, 238), 12),
+        ("41", 6, (186, 150, 255), 14),
+        ("6", 5, (118, 212, 255), 17),
+        ("CHERRY", 3, (255, 84, 105), 22),
     ]
     paylines = [
         [0, 0, 0, 0, 0],
@@ -1186,11 +1333,11 @@ class SlotsScene(CasinoGameScene):
         return 1, WHITE
 
     def symbol_label(self, symbol):
-        labels = {"DIAMOND": "Diamante azul", "CHERRY": "Cereja", "HORSESHOE": "Ferradura"}
+        labels = {"CHERRY": "Cereja", "VBUCKS": "V-Bucks"}
         return labels.get(symbol, symbol)
 
     def symbol_short_label(self, symbol):
-        labels = {"DIAMOND": "Azul", "CHERRY": "Cereja", "HORSESHOE": "Ferr."}
+        labels = {"CHERRY": "Cereja", "VBUCKS": "VB"}
         return labels.get(symbol, symbol)
 
     def build_ui(self):
@@ -1267,20 +1414,20 @@ class SlotsScene(CasinoGameScene):
             draw_text(surface, "BOB", self.app.fonts["h3"], color, band.center, "center")
         elif symbol == "6":
             draw_text(surface, "6", self.app.fonts["mega"], color, rect.center, "center")
-        elif symbol == "DIAMOND":
-            draw_diamond(surface, rect.center, 34, color, WHITE, 2)
-            draw_diamond(surface, rect.center, 16, (189, 235, 255))
+        elif symbol == "41":
+            draw_text(surface, "41", self.app.fonts["h1"], color, rect.center, "center")
+            pygame.draw.circle(surface, GOLD_2, (rect.centerx + 28, rect.centery - 28), 5)
+        elif symbol == "VBUCKS":
+            pygame.draw.circle(surface, (224, 247, 255), rect.center, 35)
+            pygame.draw.circle(surface, color, rect.center, 35, 5)
+            pygame.draw.circle(surface, (22, 92, 145), rect.center, 23, 3)
+            draw_text(surface, "V", self.app.fonts["h1"], (22, 92, 145), (rect.centerx, rect.centery + 1), "center")
         elif symbol == "CHERRY":
             pygame.draw.line(surface, GREEN, (rect.centerx + 3, rect.centery - 22), (rect.centerx + 18, rect.centery - 42), 4)
             pygame.draw.circle(surface, color, (rect.centerx - 12, rect.centery + 8), 18)
             pygame.draw.circle(surface, (230, 38, 66), (rect.centerx + 13, rect.centery + 8), 18)
             pygame.draw.circle(surface, WHITE, (rect.centerx - 18, rect.centery + 1), 4)
             pygame.draw.circle(surface, WHITE, (rect.centerx + 7, rect.centery + 1), 4)
-        elif symbol == "HORSESHOE":
-            arc_rect = pygame.Rect(rect.centerx - 34, rect.centery - 32, 68, 68)
-            pygame.draw.arc(surface, color, arc_rect, math.radians(20), math.radians(340), 10)
-            pygame.draw.circle(surface, color, (rect.centerx - 27, rect.centery + 25), 6)
-            pygame.draw.circle(surface, color, (rect.centerx + 27, rect.centery + 25), 6)
         else:
             draw_diamond(surface, rect.center, 34, color, WHITE, 2)
             draw_text(surface, symbol, self.app.fonts["h3"], (18, 29, 44), rect.center, "center")
@@ -1359,24 +1506,30 @@ class SlotsScene(CasinoGameScene):
 
 
 class PlinkoScene(CasinoGameScene):
-    rows = 10
     risk_profiles = {
         "low": {
             "label": "Baixo risco",
-            "multipliers": [3.0, 2.0, 1.5, 1.2, 1.0, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0],
+            "center": 0.8,
+            "edge": 3.0,
+            "curve": 1.9,
         },
         "medium": {
             "label": "Médio risco",
-            "multipliers": [8.0, 4.0, 2.0, 1.4, 0.8, 0.5, 0.8, 1.4, 2.0, 4.0, 8.0],
+            "center": 0.5,
+            "edge": 8.0,
+            "curve": 2.35,
         },
         "high": {
             "label": "Alto risco",
-            "multipliers": [26.0, 9.0, 4.0, 1.5, 0.3, 0.2, 0.3, 1.5, 4.0, 9.0, 26.0],
+            "center": 0.2,
+            "edge": 26.0,
+            "curve": 3.1,
         },
     }
 
     def __init__(self, app):
         super().__init__(app)
+        self.rows = 10
         self.risk = "medium"
         self.state = "idle"
         self.message = "Escolha o risco, ajuste a aposta e solte a bola."
@@ -1395,11 +1548,13 @@ class PlinkoScene(CasinoGameScene):
         return True
 
     def board_geometry(self):
+        pin_gap = 52 if self.rows <= 10 else 45 if self.rows <= 12 else 39
+        row_gap = 31 if self.rows <= 10 else 27 if self.rows <= 12 else 24
         return {
             "center_x": 445,
-            "top_y": 214,
-            "row_gap": 31,
-            "pin_gap": 52,
+            "top_y": 206,
+            "row_gap": row_gap,
+            "pin_gap": pin_gap,
             "bucket_y": 536,
         }
 
@@ -1415,7 +1570,14 @@ class PlinkoScene(CasinoGameScene):
         return (x, geo["bucket_y"] - 18)
 
     def current_multipliers(self):
-        return self.risk_profiles[self.risk]["multipliers"]
+        profile = self.risk_profiles[self.risk]
+        multipliers = []
+        middle = self.rows / 2
+        for index in range(self.rows + 1):
+            distance = abs(index - middle) / middle if middle else 0
+            value = profile["center"] + (profile["edge"] - profile["center"]) * (distance ** profile["curve"])
+            multipliers.append(round(value, 1))
+        return multipliers
 
     def active_ball_count(self):
         return sum(1 for ball in self.balls if ball["state"] in ("waiting", "dropping"))
@@ -1433,12 +1595,29 @@ class PlinkoScene(CasinoGameScene):
         for risk, label, x, y in risk_buttons:
             kind = "primary" if self.risk == risk else "secondary"
             self.buttons.append(Button(pygame.Rect(x, y, 78, 42), label, lambda r=risk: self.set_risk(r), kind, risk_enabled))
+        column_buttons = [
+            (10, "11", 878),
+            (12, "13", 966),
+            (14, "15", 1054),
+        ]
+        for rows, label, x in column_buttons:
+            kind = "primary" if self.rows == rows else "secondary"
+            self.buttons.append(Button(pygame.Rect(x, 314, 78, 42), label, lambda r=rows: self.set_rows(r), kind, risk_enabled))
 
     def set_risk(self, risk):
         if self.active_ball_count() > 0:
             return
         self.risk = risk
         self.message = f"Perfil selecionado: {self.risk_profiles[risk]['label']}."
+
+    def set_rows(self, rows):
+        if self.active_ball_count() > 0:
+            return
+        self.rows = rows
+        self.bucket_hits = [0 for _ in range(self.rows + 1)]
+        self.bucket_flash = [0.0 for _ in range(self.rows + 1)]
+        self.balls = []
+        self.message = f"Mesa ajustada para {self.rows + 1} colunas."
 
     def start_drop(self):
         if self.app.balance < self.bet:
@@ -1598,10 +1777,12 @@ class PlinkoScene(CasinoGameScene):
 
     def draw_buckets(self, surface):
         multipliers = self.current_multipliers()
+        geo = self.board_geometry()
+        bucket_w = max(34, min(46, int(geo["pin_gap"] - 4)))
         colors = [(44, 90, 80), (54, 102, 82), (75, 110, 78), (93, 113, 72), (105, 100, 68), (121, 78, 72)]
         for i, mult in enumerate(multipliers):
             cx, _ = self.bucket_center(i)
-            rect = pygame.Rect(int(cx - 23), 512, 46, 54)
+            rect = pygame.Rect(int(cx - bucket_w / 2), 512, bucket_w, 54)
             distance = abs(i - self.rows / 2) / (self.rows / 2)
             color = lerp_color(colors[0], (126, 35, 54), distance)
             selected = self.bucket_hits[i] > 0
@@ -1648,22 +1829,22 @@ class PlinkoScene(CasinoGameScene):
         rounded_rect(surface, side, PANEL, 18, 1, (76, 90, 118))
         draw_text(surface, "RISCO", self.app.fonts["tiny"], MUTED, (878, 184))
         draw_text(surface, self.risk_profiles[self.risk]["label"], self.app.fonts["small"], WHITE, (878, 262))
-        draw_text(surface, "LANÇAMENTO", self.app.fonts["tiny"], MUTED, (878, 292))
-        launch_rect = pygame.Rect(878, 314, 270, 46)
+        draw_text(surface, "COLUNAS", self.app.fonts["tiny"], MUTED, (878, 292))
+        draw_text(surface, f"{self.rows + 1} buckets", self.app.fonts["small"], WHITE, (878, 362))
+        draw_text(surface, "LANÇAMENTO", self.app.fonts["tiny"], MUTED, (878, 392))
+        launch_rect = pygame.Rect(878, 414, 270, 38)
         draw_wrapped_text(surface, "Cada clique solta uma bola independente.", self.app.fonts["small"], WHITE, launch_rect, 4, 2)
-        draw_text(surface, "RODADA ATUAL", self.app.fonts["tiny"], MUTED, (878, 374))
+        draw_text(surface, "RODADA ATUAL", self.app.fonts["tiny"], MUTED, (878, 466))
         launched = self.launched_balls if self.balls else 0
         active = self.active_ball_count()
-        draw_text(surface, f"Lançadas: {launched}", self.app.fonts["small"], WHITE, (878, 402))
-        draw_text(surface, f"Em queda: {active}", self.app.fonts["small"], MUTED, (878, 426))
-        draw_text(surface, f"Payout: {br_money(self.round_payout)}", self.app.fonts["small"], GOLD_2, (878, 450))
-        draw_text(surface, f"Custo: {br_money(self.round_cost)}", self.app.fonts["small"], MUTED, (878, 474))
-        draw_text(surface, "MULTIPLICADORES", self.app.fonts["tiny"], MUTED, (878, 518))
+        draw_text(surface, f"Lançadas: {launched}", self.app.fonts["small"], WHITE, (878, 492))
+        draw_text(surface, f"Em queda: {active}", self.app.fonts["small"], MUTED, (878, 516))
         multipliers = self.current_multipliers()
         best = max(multipliers)
         center = multipliers[len(multipliers) // 2]
-        draw_text(surface, f"Bordas: até {best:g}x", self.app.fonts["small"], GOLD_2, (878, 540))
-        draw_text(surface, f"Centro: {center:g}x", self.app.fonts["small"], MUTED, (1030, 540))
+        draw_text(surface, f"Payout: {br_money(self.round_payout)}", self.app.fonts["small"], GOLD_2, (878, 540))
+        draw_text(surface, f"Custo: {br_money(self.round_cost)}", self.app.fonts["small"], MUTED, (1030, 540))
+        draw_text(surface, f"Borda {best:g}x | Centro {center:g}x", self.app.fonts["tiny"], GOLD_2, (878, 562))
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Plinko", "Solte a bola, acompanhe os quiques e ganhe pelo bucket final.")
@@ -1672,6 +1853,174 @@ class PlinkoScene(CasinoGameScene):
         self.draw_buckets(surface)
         self.draw_balls(surface)
         self.draw_side_panel(surface)
+        msg_rect = pygame.Rect(292, 604, 510, 74)
+        rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
+        draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
+        self.draw_bet_box(surface, 850, 604)
+
+
+class CoinFlipScene(CasinoGameScene):
+    def __init__(self, app):
+        super().__init__(app)
+        self.choice = "heads"
+        self.result = None
+        self.flipping = 0.0
+        self.flip_elapsed = 0.0
+        self.flip_duration = 1.35
+        self.coin_spin = 0.0
+        self.message = "Escolha Aura ou Ego e lance a moeda."
+
+    def can_change_bet(self):
+        return self.flipping <= 0
+
+    def build_ui(self):
+        self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
+        self.add_bet_buttons(850, 604)
+        options = [("heads", "Aura", 420), ("tails", "Ego", 620)]
+        for key, label, x in options:
+            kind = "primary" if self.choice == key else "secondary"
+            self.buttons.append(Button(pygame.Rect(x, 508, 168, 50), label, lambda k=key: self.select(k), kind, self.flipping <= 0))
+        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Lançar", self.flip, "success", self.flipping <= 0 and self.app.balance >= self.bet))
+
+    def select(self, choice):
+        if self.flipping <= 0:
+            self.choice = choice
+            self.message = f"Escolha marcada: {'Aura' if choice == 'heads' else 'Ego'}."
+
+    def flip(self):
+        if self.flipping > 0 or self.app.balance < self.bet:
+            return
+        self.app.balance -= self.bet
+        self.result = random.choice(["heads", "tails"])
+        self.flip_elapsed = 0.0
+        self.flipping = self.flip_duration
+        self.coin_spin = 0.0
+        self.message = "Moeda girando..."
+
+    def update(self, dt):
+        if self.flipping > 0:
+            self.flip_elapsed += dt
+            self.flipping -= dt
+            progress = clamp(self.flip_elapsed / self.flip_duration, 0, 1)
+            self.coin_spin = progress * math.tau * 7
+            if self.flipping <= 0:
+                win = self.result == self.choice
+                if win:
+                    payout = int(self.bet * 1.95)
+                    self.app.balance += payout
+                    self.message = f"Deu {'Aura' if self.result == 'heads' else 'Ego'}! Pagamento: {br_money(payout)} fichas."
+                else:
+                    self.message = f"Deu {'Aura' if self.result == 'heads' else 'Ego'}. Aposta perdida."
+
+    def draw_coin(self, surface, center):
+        progress = clamp(self.flip_elapsed / self.flip_duration, 0, 1) if self.flip_duration else 1
+        lift = math.sin(progress * math.pi) * 90 if self.flipping > 0 else 0
+        width = max(16, int(142 * abs(math.cos(self.coin_spin))))
+        coin_rect = pygame.Rect(0, 0, width, 142)
+        coin_rect.center = (center[0], int(center[1] - lift))
+        pygame.draw.ellipse(surface, (0, 0, 0, 85), pygame.Rect(center[0] - 118, center[1] + 90, 236, 34))
+        pygame.draw.ellipse(surface, GOLD_2, coin_rect)
+        pygame.draw.ellipse(surface, (159, 96, 34), coin_rect, 5)
+        face = self.result if self.flipping <= 0 and self.result else ("heads" if math.cos(self.coin_spin) >= 0 else "tails")
+        label = "Aura" if face == "heads" else "Ego"
+        if width > 44:
+            draw_text(surface, label, self.app.fonts["h2"], (83, 49, 18), coin_rect.center, "center")
+
+    def draw(self, surface):
+        self.draw_panel_title(surface, "Aura ou Ego", "Escolha um lado da moeda animada e tente quase dobrar a aposta.")
+        stage = pygame.Rect(80, 166, 1120, 416)
+        rounded_rect(surface, stage, (13, 27, 43), 24, 2, (75, 90, 116))
+        rounded_rect(surface, stage.inflate(-34, -34), (10, 81, 70), 22, 2, (36, 143, 112))
+        self.draw_coin(surface, (640, 320))
+        draw_text(surface, "AURA", self.app.fonts["h3"], GOLD_2 if self.choice == "heads" else MUTED, (504, 452), "center")
+        draw_text(surface, "EGO", self.app.fonts["h3"], GOLD_2 if self.choice == "tails" else MUTED, (704, 452), "center")
+        msg_rect = pygame.Rect(292, 604, 510, 74)
+        rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
+        draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
+        self.draw_bet_box(surface, 850, 604)
+
+
+class CrashScene(CasinoGameScene):
+    def __init__(self, app):
+        super().__init__(app)
+        self.state = "idle"
+        self.multiplier = 1.0
+        self.crash_point = 2.0
+        self.elapsed = 0.0
+        self.stake = 0
+        self.history = []
+        self.message = "Comece a rodada e saque antes do crash."
+
+    def can_change_bet(self):
+        return self.state != "running"
+
+    def build_ui(self):
+        self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
+        self.add_bet_buttons(850, 604)
+        self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Começar", self.start_round, "success", self.state != "running" and self.app.balance >= self.bet))
+        self.buttons.append(Button(pygame.Rect(256, 604, 180, 52), "Sacar", self.cashout, "primary", self.state == "running"))
+
+    def start_round(self):
+        if self.state == "running" or self.app.balance < self.bet:
+            return
+        self.app.balance -= self.bet
+        self.stake = self.bet
+        self.elapsed = 0.0
+        self.multiplier = 1.0
+        self.crash_point = max(1.05, round(1 + random.random() ** 2.3 * 12, 2))
+        self.history = []
+        self.state = "running"
+        self.message = "Multiplicador subindo..."
+
+    def cashout(self):
+        if self.state != "running":
+            return
+        payout = int(self.stake * self.multiplier)
+        self.app.balance += payout
+        self.state = "result"
+        self.message = f"Saque em {self.multiplier:.2f}x: {br_money(payout)} fichas."
+
+    def update(self, dt):
+        if self.state != "running":
+            return
+        self.elapsed += dt
+        self.multiplier = 1 + self.elapsed * 0.65 + (self.elapsed ** 2) * 0.42
+        self.history.append(self.multiplier)
+        self.history = self.history[-90:]
+        if self.multiplier >= self.crash_point:
+            self.multiplier = self.crash_point
+            self.state = "result"
+            self.message = f"Crash em {self.crash_point:.2f}x. Aposta perdida."
+
+    def draw_graph(self, surface, rect):
+        rounded_rect(surface, rect, (9, 16, 28), 20, 2, (75, 90, 116))
+        for i in range(6):
+            y = rect.bottom - 34 - i * 48
+            pygame.draw.line(surface, (38, 49, 70), (rect.x + 28, y), (rect.right - 28, y), 1)
+        points = []
+        values = self.history if self.history else [self.multiplier]
+        max_val = max(3.0, max(values) + 0.5)
+        for i, value in enumerate(values):
+            t = i / max(1, len(values) - 1)
+            x = rect.x + 44 + t * (rect.w - 88)
+            y = rect.bottom - 42 - ((value - 1) / (max_val - 1)) * (rect.h - 84)
+            points.append((x, y))
+        if len(points) > 1:
+            pygame.draw.lines(surface, GREEN if self.state == "running" else RED, False, points, 6)
+            pygame.draw.circle(surface, GOLD_2, (int(points[-1][0]), int(points[-1][1])), 9)
+        draw_text(surface, f"{self.multiplier:.2f}x", self.app.fonts["mega"], GOLD_2 if self.state == "running" else RED, rect.center, "center")
+
+    def draw(self, surface):
+        self.draw_panel_title(surface, "Crash 67", "Segure a coragem, mas saque antes do multiplicador explodir.")
+        self.draw_graph(surface, pygame.Rect(90, 166, 720, 416))
+        panel = pygame.Rect(850, 166, 330, 416)
+        rounded_rect(surface, panel, PANEL, 18, 1, (76, 90, 118))
+        draw_text(surface, "RODADA", self.app.fonts["tiny"], MUTED, (878, 198))
+        draw_text(surface, "Rodando" if self.state == "running" else "Pronto", self.app.fonts["h3"], WHITE, (878, 228))
+        draw_text(surface, "MULTIPLICADOR", self.app.fonts["tiny"], MUTED, (878, 286))
+        draw_text(surface, f"{self.multiplier:.2f}x", self.app.fonts["h2"], GOLD_2, (878, 318))
+        draw_text(surface, "SAQUE AGORA", self.app.fonts["tiny"], MUTED, (878, 386))
+        draw_text(surface, f"{br_money(int(self.stake * self.multiplier))} fichas", self.app.fonts["h3"], GREEN, (878, 418))
         msg_rect = pygame.Rect(292, 604, 510, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
@@ -1849,7 +2198,7 @@ class CasinoApp:
         self.clock = pygame.time.Clock()
         self.fonts = self.load_fonts()
         self.images, self.sounds = self.load_assets()
-        self.balance = 5000
+        self.balance = 10000
         self.running = True
         self.scenes = {
             "menu": MenuScene(self),
@@ -1859,6 +2208,8 @@ class CasinoApp:
             "slots": SlotsScene(self),
             "plinko": PlinkoScene(self),
             "mines": MinesScene(self),
+            "coinflip": CoinFlipScene(self),
+            "crash": CrashScene(self),
         }
         self.scene_name = "menu"
         self.scene = self.scenes[self.scene_name]
@@ -1915,7 +2266,7 @@ class CasinoApp:
         self.scene.on_enter()
 
     def refill_balance(self):
-        self.balance = 5000
+        self.balance = 10000
 
     def draw_background(self):
         for y in range(HEIGHT):
