@@ -364,7 +364,7 @@ class CasinoGameScene(Scene):
     def all_in_bet(self):
         if not self.can_change_bet():
             return
-        self.bet = min(self.max_bet, max(self.min_bet, self.app.balance))
+        self.bet = max(self.min_bet, self.app.balance)
 
 
 class MenuScene(Scene):
@@ -698,16 +698,16 @@ class BlackjackScene(CasinoGameScene):
             player_value = self.hand_value(hand)
             stake = self.hand_stakes[index]
             if player_value > 21:
-                summaries.append(f"M{index + 1}: perdeu ({player_value})")
+                summaries.append(f"Você perdeu ({player_value})")
             elif dealer_value > 21 or player_value > dealer_value:
                 payout = stake * 2
                 total_payout += payout
-                summaries.append(f"M{index + 1}: venceu {player_value}x{dealer_value}")
+                summaries.append(f"Você venceu {player_value}x{dealer_value}")
             elif player_value == dealer_value:
                 total_payout += stake
-                summaries.append(f"M{index + 1}: empate {player_value}")
+                summaries.append(f"Você empatou em {player_value}")
             else:
-                summaries.append(f"M{index + 1}: perdeu {player_value}x{dealer_value}")
+                summaries.append(f"Você perdeu {player_value}x{dealer_value}")
         if total_payout:
             self.app.balance += total_payout
         self.message = f"{'; '.join(summaries)}. Pagamento: {br_money(total_payout)}."
@@ -838,6 +838,8 @@ class DiceScene(CasinoGameScene):
         self.die_offsets = [(0, 0), (0, 0)]
         self.roll_trails = [[], []]
         self.table_shake = 0.0
+        self.die_start_offsets = [(0, 0), (0, 0)]
+        self.die_spin_start = [0, 0]
         self.pending_result = None
         self.message = "Escolha o mercado e role os dados."
 
@@ -872,7 +874,9 @@ class DiceScene(CasinoGameScene):
         self.roll_elapsed = 0.0
         self.rolling = self.roll_duration
         self.pending_result = [random.randint(1, 6), random.randint(1, 6)]
-        self.die_angles = [random.uniform(-80, 80), random.uniform(-80, 80)]
+        self.die_start_offsets = [(-260, -78), (260, -92)]
+        self.die_spin_start = [random.choice([-1, 1]) * random.randint(900, 1260), random.choice([-1, 1]) * random.randint(900, 1260)]
+        self.die_angles = self.die_spin_start[:]
         self.roll_trails = [[], []]
         self.table_shake = 1.0
         self.message = "Os dados saltaram na mesa..."
@@ -882,23 +886,23 @@ class DiceScene(CasinoGameScene):
             self.roll_elapsed += dt
             self.rolling -= dt
             progress = clamp(self.roll_elapsed / self.roll_duration, 0, 1)
-            energy = (1 - progress) ** 1.85
-            ease = 1 - (1 - progress) ** 4
+            energy = (1 - progress) ** 1.7
+            ease = 1 - (1 - progress) ** 3
             self.table_shake = energy
             for i in range(2):
-                if random.random() < 0.45 + energy * 0.35:
+                if random.random() < 0.35 + energy * 0.45:
                     self.dice[i] = random.randint(1, 6)
-                direction = 1 if i == 0 else -1
-                spin = direction * (1440 * (1 - ease) + 120 * math.sin(self.roll_elapsed * 16 + i))
-                wobble = math.sin((self.roll_elapsed * 28) + i * 1.7) * 28 * energy
-                hop = abs(math.sin((self.roll_elapsed * 13) + i * 0.9)) * 82 * energy
-                slide = math.cos(self.roll_elapsed * 9 + i * 1.2) * 86 * energy
-                drift = direction * math.sin(progress * math.pi) * 60
-                self.die_angles[i] = spin + wobble
-                self.die_offsets[i] = (int(slide + drift), -int(hop))
+                sx, sy = self.die_start_offsets[i]
+                roll_x = sx * (1 - ease)
+                roll_y = sy * (1 - ease)
+                bounce = abs(math.sin(progress * math.pi * 4.5 + i * 0.6)) * 88 * energy
+                jitter_x = math.sin(self.roll_elapsed * 18 + i) * 16 * energy
+                jitter_y = math.sin(self.roll_elapsed * 23 + i * 1.4) * 7 * energy
+                self.die_angles[i] = self.die_spin_start[i] * (1 - ease) + math.sin(self.roll_elapsed * 20 + i) * 18 * energy
+                self.die_offsets[i] = (int(roll_x + jitter_x), int(roll_y - bounce + jitter_y))
                 base_x = 450 if i == 0 else 690
                 self.roll_trails[i].append((base_x + 67 + self.die_offsets[i][0], 235 + 67 + self.die_offsets[i][1], energy))
-                self.roll_trails[i] = self.roll_trails[i][-10:]
+                self.roll_trails[i] = self.roll_trails[i][-12:]
             if self.rolling <= 0:
                 self.dice = self.pending_result
                 self.die_angles = [0, 0]
@@ -933,7 +937,8 @@ class DiceScene(CasinoGameScene):
         local = pygame.Rect(8, 6, rect.w, rect.h)
         pygame.draw.rect(die_surface, (0, 0, 0, 70), pygame.Rect(14, 14, rect.w, rect.h), border_radius=22)
         rounded_rect(die_surface, local, CARD, 22, 3, (216, 210, 198))
-        pygame.draw.rect(die_surface, (255, 255, 255, 80), pygame.Rect(local.x + 12, local.y + 12, local.w - 24, 28), border_radius=14)
+        pygame.draw.rect(die_surface, (255, 255, 255, 95), pygame.Rect(local.x + 12, local.y + 12, local.w - 24, 28), border_radius=14)
+        pygame.draw.line(die_surface, (210, 205, 193), (local.x + 18, local.bottom - 18), (local.right - 18, local.bottom - 18), 2)
         spots = {
             1: [(0.5, 0.5)],
             2: [(0.28, 0.28), (0.72, 0.72)],
@@ -1866,8 +1871,9 @@ class CoinFlipScene(CasinoGameScene):
         self.result = None
         self.flipping = 0.0
         self.flip_elapsed = 0.0
-        self.flip_duration = 1.35
+        self.flip_duration = 1.55
         self.coin_spin = 0.0
+        self.coin_tilt = 0.0
         self.message = "Escolha Aura ou Ego e lance a moeda."
 
     def can_change_bet(self):
@@ -1902,7 +1908,9 @@ class CoinFlipScene(CasinoGameScene):
             self.flip_elapsed += dt
             self.flipping -= dt
             progress = clamp(self.flip_elapsed / self.flip_duration, 0, 1)
-            self.coin_spin = progress * math.tau * 7
+            ease = 1 - (1 - progress) ** 3
+            self.coin_spin = ease * math.tau * 8
+            self.coin_tilt = math.sin(progress * math.pi * 2.5) * (1 - progress)
             if self.flipping <= 0:
                 win = self.result == self.choice
                 if win:
@@ -1914,17 +1922,30 @@ class CoinFlipScene(CasinoGameScene):
 
     def draw_coin(self, surface, center):
         progress = clamp(self.flip_elapsed / self.flip_duration, 0, 1) if self.flip_duration else 1
-        lift = math.sin(progress * math.pi) * 90 if self.flipping > 0 else 0
-        width = max(16, int(142 * abs(math.cos(self.coin_spin))))
-        coin_rect = pygame.Rect(0, 0, width, 142)
-        coin_rect.center = (center[0], int(center[1] - lift))
+        lift = math.sin(progress * math.pi) * 92 if self.flipping > 0 else 0
+        tilt_shift = int(self.coin_tilt * 18) if self.flipping > 0 else 0
+        width = max(18, int(146 * abs(math.cos(self.coin_spin))))
+        coin_rect = pygame.Rect(0, 0, width, 146)
+        coin_rect.center = (center[0] + tilt_shift, int(center[1] - lift))
         pygame.draw.ellipse(surface, (0, 0, 0, 85), pygame.Rect(center[0] - 118, center[1] + 90, 236, 34))
+        edge_rect = coin_rect.inflate(10, 8)
+        pygame.draw.ellipse(surface, (134, 82, 28), edge_rect)
         pygame.draw.ellipse(surface, GOLD_2, coin_rect)
-        pygame.draw.ellipse(surface, (159, 96, 34), coin_rect, 5)
+        pygame.draw.ellipse(surface, (116, 70, 24), coin_rect, 5)
+        pygame.draw.ellipse(surface, (255, 240, 154), coin_rect.inflate(-20, -20), 3)
+        pygame.draw.ellipse(surface, (173, 107, 35), coin_rect.inflate(-42, -42), 2)
+        for angle in range(0, 360, 30):
+            rad = math.radians(angle)
+            x1 = coin_rect.centerx + int(math.cos(rad) * width * 0.42)
+            y1 = coin_rect.centery + int(math.sin(rad) * 61)
+            x2 = coin_rect.centerx + int(math.cos(rad) * width * 0.48)
+            y2 = coin_rect.centery + int(math.sin(rad) * 70)
+            pygame.draw.line(surface, (118, 72, 24), (x1, y1), (x2, y2), 2)
         face = self.result if self.flipping <= 0 and self.result else ("heads" if math.cos(self.coin_spin) >= 0 else "tails")
         label = "Aura" if face == "heads" else "Ego"
-        if width > 44:
+        if width > 48:
             draw_text(surface, label, self.app.fonts["h2"], (83, 49, 18), coin_rect.center, "center")
+            draw_text(surface, "CASINO 67", self.app.fonts["tiny"], (116, 70, 24), (coin_rect.centerx, coin_rect.centery + 38), "center")
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Aura ou Ego", "Escolha um lado da moeda animada e tente quase dobrar a aposta.")
