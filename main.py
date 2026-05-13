@@ -334,6 +334,12 @@ class CasinoGameScene(Scene):
     def __init__(self, app):
         super().__init__(app)
         self.bet = 100
+        self.bet_hold_delta = 0
+        self.bet_hold_wait = 0.0
+        self.bet_hold_tick = 0.0
+        self.bet_hold_repeats = 0
+        self.bet_minus_rect = pygame.Rect(0, 0, 0, 0)
+        self.bet_plus_rect = pygame.Rect(0, 0, 0, 0)
 
     def can_change_bet(self):
         return True
@@ -341,7 +347,9 @@ class CasinoGameScene(Scene):
     def change_bet(self, amount):
         if not self.can_change_bet():
             return
-        self.bet = clamp(self.bet + amount, self.min_bet, min(self.max_bet, max(self.min_bet, self.app.balance)))
+        balance_cap = max(self.min_bet, self.app.balance)
+        high = balance_cap if self.bet > self.max_bet else min(self.max_bet, balance_cap)
+        self.bet = clamp(self.bet + amount, self.min_bet, high)
 
     def draw_bet_box(self, surface, x, y, w=370):
         rect = pygame.Rect(x, y, w, 74)
@@ -351,13 +359,57 @@ class CasinoGameScene(Scene):
 
     def add_bet_buttons(self, x, y):
         enabled = self.can_change_bet()
+        self.bet_minus_rect = pygame.Rect(x + 166, y + 15, 44, 44)
+        self.bet_plus_rect = pygame.Rect(x + 214, y + 15, 44, 44)
         self.buttons.extend(
             [
-                Button(pygame.Rect(x + 166, y + 15, 44, 44), "-", lambda: self.change_bet(-25), "secondary", enabled),
-                Button(pygame.Rect(x + 214, y + 15, 44, 44), "+", lambda: self.change_bet(25), "secondary", enabled),
+                Button(self.bet_minus_rect, "-", lambda: self.change_bet(-25), "secondary", enabled),
+                Button(self.bet_plus_rect, "+", lambda: self.change_bet(25), "secondary", enabled),
                 Button(pygame.Rect(x + 266, y + 15, 88, 44), "ALL IN", self.all_in_bet, "ghost", enabled),
             ]
         )
+
+    def start_bet_hold(self, delta):
+        self.change_bet(delta)
+        self.bet_hold_delta = delta
+        self.bet_hold_wait = 0.32
+        self.bet_hold_tick = 0.0
+        self.bet_hold_repeats = 0
+
+    def stop_bet_hold(self):
+        self.bet_hold_delta = 0
+        self.bet_hold_wait = 0.0
+        self.bet_hold_tick = 0.0
+        self.bet_hold_repeats = 0
+
+    def update_bet_hold(self, dt):
+        if not self.bet_hold_delta:
+            return
+        if not pygame.mouse.get_pressed()[0] or not self.can_change_bet():
+            self.stop_bet_hold()
+            return
+        if self.bet_hold_wait > 0:
+            self.bet_hold_wait -= dt
+            return
+        self.bet_hold_tick += dt
+        interval = max(0.045, 0.11 - self.bet_hold_repeats * 0.004)
+        while self.bet_hold_tick >= interval:
+            self.change_bet(self.bet_hold_delta)
+            self.bet_hold_tick -= interval
+            self.bet_hold_repeats += 1
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.can_change_bet():
+            if self.bet_minus_rect.collidepoint(event.pos):
+                self.start_bet_hold(-25)
+                return True
+            if self.bet_plus_rect.collidepoint(event.pos):
+                self.start_bet_hold(25)
+                return True
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.bet_hold_delta:
+            self.stop_bet_hold()
+            return True
+        return super().handle_event(event)
 
     def maximize_bet(self):
         self.all_in_bet()
@@ -562,6 +614,7 @@ class BlackjackScene(CasinoGameScene):
         self.hand_stakes = []
         self.active_hand = 0
         self.hand_status = []
+        self.hand_count = 1
         self.card_anim = 0.0
         self.card_anim_owner = None
 
@@ -581,7 +634,10 @@ class BlackjackScene(CasinoGameScene):
         self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
         self.add_bet_buttons(850, 604)
         if self.phase in ("ready", "result"):
-            self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Dar cartas", self.start_hand, "primary", self.app.balance >= self.bet))
+            total_cost = self.bet * self.hand_count
+            self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Dar cartas", self.start_hand, "primary", self.app.balance >= total_cost))
+            self.buttons.append(Button(pygame.Rect(258, 604, 44, 52), "-", lambda: self.change_hand_count(-1), "secondary", self.hand_count > 1))
+            self.buttons.append(Button(pygame.Rect(362, 604, 44, 52), "+", lambda: self.change_hand_count(1), "secondary", self.hand_count < 5))
         if self.phase == "player":
             self.buttons.extend(
                 [
@@ -603,6 +659,11 @@ class BlackjackScene(CasinoGameScene):
                     ),
                 ]
             )
+
+    def change_hand_count(self, amount):
+        if self.phase not in ("ready", "result"):
+            return
+        self.hand_count = clamp(self.hand_count + amount, 1, 5)
 
     def make_deck(self):
         self.deck = [(rank, suit) for suit in self.suits for rank in self.ranks]
@@ -644,40 +705,66 @@ class BlackjackScene(CasinoGameScene):
     def sync_player_alias(self):
         self.player = self.current_hand() if self.player_hands else []
 
+    def move_to_next_playable_hand(self):
+        for index in range(self.active_hand, len(self.player_hands)):
+            if self.hand_status[index] != "blackjack_pago":
+                self.active_hand = index
+                self.sync_player_alias()
+                return True
+        return False
+
     def start_hand(self):
-        if self.app.balance < self.bet:
-            self.message = "Saldo insuficiente para esta aposta."
+        total_cost = self.bet * self.hand_count
+        if self.app.balance < total_cost:
+            self.message = f"Saldo insuficiente para {self.hand_count} mão(s)."
             return
-        self.app.balance -= self.bet
-        self.stake = self.bet
+        self.app.balance -= total_cost
+        self.stake = total_cost
         self.make_deck()
-        self.player = [self.draw_card_from_deck(), self.draw_card_from_deck()]
+        self.player_hands = []
+        for _ in range(self.hand_count):
+            self.player_hands.append([self.draw_card_from_deck(), self.draw_card_from_deck()])
+        self.player = self.player_hands[0]
         self.dealer = [self.draw_card_from_deck(), self.draw_card_from_deck()]
-        self.player_hands = [self.player]
-        self.hand_stakes = [self.stake]
+        self.hand_stakes = [self.bet for _ in range(self.hand_count)]
         self.active_hand = 0
-        self.hand_status = [""]
+        self.hand_status = ["" for _ in range(self.hand_count)]
         self.phase = "player"
         self.card_anim = 0.45
         self.card_anim_owner = "player"
-        self.message = "Sua vez: peça carta, pare, dobre ou faça split se possível."
+        self.message = f"Jogue a mão 1 de {self.hand_count}: peça carta, pare ou dobre."
         self.resolve_naturals()
 
     def resolve_naturals(self):
-        player_bj = self.hand_value(self.player) == 21 and len(self.player) == 2
+        player_bjs = [i for i, hand in enumerate(self.player_hands) if self.hand_value(hand) == 21 and len(hand) == 2]
         dealer_bj = self.hand_value(self.dealer) == 21 and len(self.dealer) == 2
-        if player_bj and dealer_bj:
-            self.app.balance += self.stake
-            self.message = "Dois blackjacks. Empate, aposta devolvida."
+        if dealer_bj:
+            total_return = 0
+            summaries = []
+            for index, hand in enumerate(self.player_hands):
+                if index in player_bjs:
+                    total_return += self.hand_stakes[index]
+                    summaries.append("Você empatou com blackjack")
+                else:
+                    summaries.append("Você perdeu contra blackjack")
+            if total_return:
+                self.app.balance += total_return
+            self.message = f"{'; '.join(summaries)}. Retorno: {br_money(total_return)}."
             self.phase = "result"
-        elif player_bj:
-            payout = int(self.stake * 2.5)
-            self.app.balance += payout
-            self.message = f"Blackjack! Você recebeu {br_money(payout)} fichas."
-            self.phase = "result"
-        elif dealer_bj:
-            self.message = "Dealer abriu blackjack. Aposta perdida."
-            self.phase = "result"
+            return
+        if player_bjs:
+            total_payout = 0
+            for index in player_bjs:
+                payout = int(self.hand_stakes[index] * 2.5)
+                total_payout += payout
+                self.hand_status[index] = "blackjack_pago"
+            self.app.balance += total_payout
+            if not self.move_to_next_playable_hand():
+                self.message = f"Blackjack! Pagamento total: {br_money(total_payout)} fichas."
+                self.phase = "result"
+            else:
+                value = self.hand_value(self.current_hand())
+                self.message = f"Blackjack pago. Agora jogue a mão {self.active_hand + 1}, valendo {value}."
 
     def hand_value(self, hand):
         total = 0
@@ -720,8 +807,11 @@ class BlackjackScene(CasinoGameScene):
         self.advance_hand()
 
     def advance_hand(self):
-        if self.active_hand + 1 < len(self.player_hands):
-            self.active_hand += 1
+        next_hand = self.active_hand + 1
+        while next_hand < len(self.player_hands) and self.hand_status[next_hand] == "blackjack_pago":
+            next_hand += 1
+        if next_hand < len(self.player_hands):
+            self.active_hand = next_hand
             self.sync_player_alias()
             value = self.hand_value(self.current_hand())
             self.message = f"Agora jogue a mão {self.active_hand + 1}, valendo {value}."
@@ -738,6 +828,9 @@ class BlackjackScene(CasinoGameScene):
         summaries = []
         total_payout = 0
         for index, hand in enumerate(self.player_hands):
+            if self.hand_status[index] == "blackjack_pago":
+                summaries.append("Você fez blackjack")
+                continue
             player_value = self.hand_value(hand)
             stake = self.hand_stakes[index]
             if player_value > 21:
@@ -848,10 +941,12 @@ class BlackjackScene(CasinoGameScene):
         self.draw_hand(surface, "Dealer", self.dealer, 154, 244, dealer_hidden)
         hands = self.player_hands if self.player_hands else ([self.player] if self.player else [])
         if len(hands) > 1:
+            hand_gap = 220 if len(hands) <= 3 else 126
+            card_spacing = 64 if len(hands) <= 3 else 46
             for index, hand in enumerate(hands):
-                x = 154 + index * 300
+                x = 126 + index * hand_gap
                 title = f"Mão {index + 1} ({self.hand_value(hand)})"
-                self.draw_hand(surface, title, hand, x, 412, False, self.phase == "player" and index == self.active_hand, 72)
+                self.draw_hand(surface, title, hand, x, 412, False, self.phase == "player" and index == self.active_hand, card_spacing)
         else:
             self.draw_hand(surface, "Você", self.player, 154, 412, False)
         player_value = self.hand_value(self.current_hand()) if hands else 0
@@ -866,6 +961,11 @@ class BlackjackScene(CasinoGameScene):
         msg_rect = pygame.Rect(502, 604, 320, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
+        if self.phase in ("ready", "result"):
+            hands_rect = pygame.Rect(306, 604, 52, 52)
+            rounded_rect(surface, hands_rect, PANEL_2, 10, 1, (82, 96, 126))
+            draw_text(surface, "MÃOS", self.app.fonts["tiny"], MUTED, (hands_rect.centerx, hands_rect.y + 8), "center")
+            draw_text(surface, str(self.hand_count), self.app.fonts["h3"], GOLD_2, (hands_rect.centerx, hands_rect.y + 25), "center")
         self.draw_bet_box(surface, 850, 604)
 
 
@@ -2526,6 +2626,8 @@ class CasinoApp:
             if not self.running:
                 break
             self.scene.update(dt)
+            if hasattr(self.scene, "update_bet_hold"):
+                self.scene.update_bet_hold(dt)
             self.scene.build_ui()
             self.draw_background()
             self.draw_top_bar()
@@ -2548,4 +2650,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
