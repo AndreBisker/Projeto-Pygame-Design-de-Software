@@ -2595,7 +2595,7 @@ class CasinoApp:
         rounded_rect(self.screen, rect, (11, 15, 27), 0)
         pygame.draw.line(self.screen, (59, 70, 91), (0, 86), (WIDTH, 86), 1)
         draw_text(self.screen, "Casino 67", self.fonts["h3"], GOLD_2, (158, 25))
-        draw_text(self.screen, "André B  |  Christian S  |  Rony F", self.fonts["small"], MUTED, (158, 55))
+        draw_text(self.screen, "André. B  |  Christian. S  |  Rony. F", self.fonts["small"], MUTED, (158, 55))
         draw_chip(self.screen, (82, 43), 31, "67", self.fonts["body"])
         balance_rect = pygame.Rect(962, 18, 254, 50)
         rounded_rect(self.screen, balance_rect, (24, 34, 51), 12, 1, (88, 103, 130))
