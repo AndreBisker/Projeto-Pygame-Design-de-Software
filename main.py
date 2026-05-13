@@ -1,3 +1,4 @@
+import json
 import math
 import random
 from dataclasses import dataclass
@@ -367,6 +368,47 @@ class CasinoGameScene(Scene):
         self.bet = max(self.min_bet, self.app.balance)
 
 
+class AgeGateScene(Scene):
+    def __init__(self, app):
+        super().__init__(app)
+        self.time = 0.0
+
+    def build_ui(self):
+        self.buttons = [
+            Button(pygame.Rect(420, 492, 440, 58), "Sou maior de 18 anos", lambda: self.app.set_scene("menu"), "primary"),
+            Button(pygame.Rect(420, 566, 440, 58), "Sou menor de 18 anos", self.deny_access, "danger"),
+        ]
+
+    def deny_access(self):
+        self.app.quit_game()
+
+    def update(self, dt):
+        self.time += dt
+
+    def draw(self, surface):
+        veil = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        veil.fill((4, 7, 14, 210))
+        surface.blit(veil, (0, 0))
+        for i in range(16):
+            angle = self.time * 0.35 + i * math.tau / 16
+            radius = 235 + math.sin(self.time * 1.2 + i) * 16
+            x = int(WIDTH // 2 + math.cos(angle) * radius)
+            y = int(318 + math.sin(angle) * radius * 0.45)
+            pygame.draw.circle(surface, (255, 221, 139, 30), (x, y), 3 + i % 3)
+        halo = pygame.Surface((460, 460), pygame.SRCALPHA)
+        for radius in range(210, 70, -28):
+            alpha = int(12 + (210 - radius) * 0.18)
+            pygame.draw.circle(halo, (*GOLD_2, alpha), (230, 230), radius, 2)
+        surface.blit(halo, halo.get_rect(center=(WIDTH // 2, 292)))
+        draw_premium_chip(surface, (WIDTH // 2, 292), 94, "67", self.app.fonts["h1"], (math.sin(self.time * 2.2) + 1) / 2)
+        draw_text(surface, "Casino 67", self.app.fonts["mega"], GOLD_2, (WIDTH // 2, 112), "center")
+        draw_text(surface, "feito por: André B, Christian S, Rony F", self.app.fonts["body"], MUTED, (WIDTH // 2, 184), "center")
+        panel = pygame.Rect(350, 424, 580, 226)
+        rounded_rect(surface, panel, (15, 22, 36), 22, 1, (86, 101, 132))
+        draw_text(surface, "Verificação de idade", self.app.fonts["h2"], WHITE, (WIDTH // 2, 448), "center")
+        draw_text(surface, "Confirme sua idade para acessar o salão principal.", self.app.fonts["small"], MUTED, (WIDTH // 2, 482), "center")
+
+
 class MenuScene(Scene):
     def __init__(self, app):
         super().__init__(app)
@@ -398,6 +440,7 @@ class MenuScene(Scene):
             self.card_rects.append((rect, scene, title, desc, icon))
             self.buttons.append(Button(pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44), "Jogar", lambda s=scene: self.app.set_scene(s), "primary"))
         self.buttons.append(Button(pygame.Rect(1030, 268, 170, 46), "Recarregar", self.app.refill_balance, "secondary"))
+        self.buttons.append(Button(pygame.Rect(842, 268, 170, 46), "Rankings", lambda: self.app.set_scene("rankings"), "ghost"))
 
     def update(self, dt):
         self.time += dt
@@ -2218,6 +2261,131 @@ class MinesScene(CasinoGameScene):
         self.draw_bet_box(surface, 850, 604)
 
 
+class RankingScene(Scene):
+    def __init__(self, app):
+        super().__init__(app)
+        self.rankings = []
+        self.name_text = ""
+        self.input_active = True
+        self.message = "Digite seu nome e salve sua pontuação."
+        self.input_rect = pygame.Rect(106, 246, 430, 54)
+
+    def on_enter(self):
+        self.message = "Digite seu nome e salve sua pontuação."
+        self.rankings = self.load_rankings()
+        self.input_active = True
+
+    def build_ui(self):
+        self.buttons = [
+            Button(pygame.Rect(24, 22, 112, 42), "Voltar", lambda: self.app.set_scene("menu"), "secondary"),
+            Button(pygame.Rect(106, 322, 210, 52), "Salvar ranking", self.save_current_ranking, "primary"),
+            Button(pygame.Rect(334, 322, 142, 52), "Limpar", self.clear_name, "ghost"),
+        ]
+
+    def rankings_path(self):
+        return self.app.base_dir / "rankings.json"
+
+    def load_rankings(self):
+        path = self.rankings_path()
+        if not path.exists():
+            try:
+                path.write_text("[]", encoding="utf-8")
+            except OSError:
+                self.message = "Não foi possível criar rankings.json."
+                return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            self.message = "Ranking vazio ou corrompido. Um novo ranking será usado."
+            return []
+        if not isinstance(data, list):
+            return []
+        cleaned = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "Apostador")).strip()[:24] or "Apostador"
+            try:
+                chips = int(item.get("chips", 0))
+            except (TypeError, ValueError):
+                chips = 0
+            cleaned.append({"name": name, "chips": max(0, chips)})
+        return sorted(cleaned, key=lambda item: item["chips"], reverse=True)
+
+    def write_rankings(self):
+        path = self.rankings_path()
+        try:
+            path.write_text(json.dumps(self.rankings, ensure_ascii=False, indent=2), encoding="utf-8")
+            return True
+        except OSError:
+            self.message = "Não foi possível salvar o ranking."
+            return False
+
+    def save_current_ranking(self):
+        name = self.name_text.strip()[:24] or "Apostador"
+        self.rankings.append({"name": name, "chips": int(self.app.balance)})
+        self.rankings = sorted(self.rankings, key=lambda item: item["chips"], reverse=True)
+        if self.write_rankings():
+            self.name_text = ""
+            self.message = f"Ranking salvo: {name} com {br_money(self.app.balance)} fichas."
+
+    def clear_name(self):
+        self.name_text = ""
+        self.input_active = True
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.input_active = self.input_rect.collidepoint(event.pos)
+        if super().handle_event(event):
+            return True
+        if event.type == pygame.TEXTINPUT and self.input_active:
+            if len(self.name_text) < 24 and event.text.isprintable():
+                self.name_text += event.text
+            return True
+        if event.type == pygame.KEYDOWN and self.input_active:
+            if event.key == pygame.K_BACKSPACE:
+                self.name_text = self.name_text[:-1]
+                return True
+            if event.key == pygame.K_RETURN:
+                self.save_current_ranking()
+                return True
+        return False
+
+    def draw_ranking_rows(self, surface, rect):
+        rounded_rect(surface, rect, PANEL, 18, 1, (76, 90, 118))
+        draw_text(surface, "TOP 10", self.app.fonts["tiny"], MUTED, (rect.x + 24, rect.y + 20))
+        if not self.rankings:
+            draw_centered_wrapped(surface, "Nenhum ranking salvo ainda.", self.app.fonts["body"], MUTED, rect.inflate(-40, -80))
+            return
+        for i, item in enumerate(self.rankings[:10]):
+            y = rect.y + 58 + i * 42
+            row = pygame.Rect(rect.x + 18, y, rect.w - 36, 34)
+            color = (31, 39, 60) if i % 2 == 0 else (26, 33, 52)
+            rounded_rect(surface, row, color, 8, 1, (58, 70, 96))
+            rank_color = GOLD_2 if i < 3 else MUTED
+            draw_text(surface, f"{i + 1}.", self.app.fonts["small"], rank_color, (row.x + 14, row.y + 8))
+            draw_text(surface, item["name"], self.app.fonts["small"], WHITE, (row.x + 58, row.y + 8))
+            draw_text(surface, f"{br_money(item['chips'])} fichas", self.app.fonts["small"], GOLD_2, (row.right - 16, row.y + 8), "topright")
+
+    def draw(self, surface):
+        self.draw_panel_title(surface, "Rankings", "Salve seu saldo atual e compare os melhores apostadores.")
+        form = pygame.Rect(78, 166, 502, 414)
+        rounded_rect(surface, form, PANEL, 18, 1, (76, 90, 118))
+        draw_text(surface, "APOSTADOR", self.app.fonts["tiny"], MUTED, (106, 206))
+        border = GOLD_2 if self.input_active else (82, 96, 126)
+        rounded_rect(surface, self.input_rect, (16, 23, 38), 12, 2, border)
+        shown = self.name_text if self.name_text else "Digite seu nome"
+        color = WHITE if self.name_text else (110, 122, 138)
+        draw_text(surface, shown, self.app.fonts["body"], color, (self.input_rect.x + 18, self.input_rect.y + 16))
+        if self.input_active and int(pygame.time.get_ticks() / 420) % 2 == 0:
+            caret_x = self.input_rect.x + 18 + self.app.fonts["body"].size(self.name_text)[0] + 3
+            pygame.draw.line(surface, GOLD_2, (caret_x, self.input_rect.y + 14), (caret_x, self.input_rect.bottom - 14), 2)
+        draw_text(surface, "FICHAS ATUAIS", self.app.fonts["tiny"], MUTED, (106, 414))
+        draw_text(surface, f"{br_money(self.app.balance)} fichas", self.app.fonts["h2"], GOLD_2, (106, 444))
+        draw_wrapped_text(surface, self.message, self.app.fonts["small"], MUTED, pygame.Rect(106, 504, 410, 42), 4, 2)
+        self.draw_ranking_rows(surface, pygame.Rect(618, 166, 584, 414))
+
+
 class CasinoApp:
     def __init__(self):
         pygame.init()
@@ -2236,7 +2404,9 @@ class CasinoApp:
         self.balance = 10000
         self.running = True
         self.scenes = {
+            "agegate": AgeGateScene(self),
             "menu": MenuScene(self),
+            "rankings": RankingScene(self),
             "blackjack": BlackjackScene(self),
             "dice": DiceScene(self),
             "roulette": RouletteScene(self),
@@ -2246,7 +2416,7 @@ class CasinoApp:
             "coinflip": CoinFlipScene(self),
             "crash": CrashScene(self),
         }
-        self.scene_name = "menu"
+        self.scene_name = "agegate"
         self.scene = self.scenes[self.scene_name]
         self.bg_stars = [(random.randrange(WIDTH), random.randrange(HEIGHT), random.randrange(1, 3)) for _ in range(80)]
 
@@ -2300,6 +2470,9 @@ class CasinoApp:
         self.scene = self.scenes[name]
         self.scene.on_enter()
 
+    def quit_game(self):
+        self.running = False
+
     def refill_balance(self):
         self.balance = 10000
 
@@ -2334,7 +2507,7 @@ class CasinoApp:
             self.running = False
         elif event.type == pygame.KEYUP:
             if event.key == pygame.K_ESCAPE:
-                if self.scene_name == "menu":
+                if self.scene_name in ("agegate", "menu"):
                     self.running = False
                 else:
                     self.set_scene("menu")
@@ -2345,7 +2518,13 @@ class CasinoApp:
             self.scene.build_ui()
             for event in pygame.event.get():
                 self.handle_global(event)
+                if not self.running:
+                    break
                 self.scene.handle_event(event)
+                if not self.running:
+                    break
+            if not self.running:
+                break
             self.scene.update(dt)
             self.scene.build_ui()
             self.draw_background()
