@@ -886,7 +886,7 @@ class BlackjackScene(CasinoGameScene):
         self.card_anim_owner = "player"
         self.message = "Split feito! Jogue primeiro a mão 1."
 
-    def draw_card(self, surface, card, x, y, hidden=False, animate=False):
+    def draw_card(self, surface, card, x, y, hidden=False, animate=False, scale=1.0):
         card_surface = pygame.Surface((98, 136), pygame.SRCALPHA)
         pygame.draw.rect(card_surface, (0, 0, 0, 58), pygame.Rect(8, 10, 86, 122), border_radius=13)
         rect = pygame.Rect(3, 4, 86, 122)
@@ -906,25 +906,45 @@ class BlackjackScene(CasinoGameScene):
             draw_text(card_surface, rank, self.app.fonts["card"], color, (rect.x + 10, rect.y + 8))
             draw_text(card_surface, suit, self.app.fonts["h2"], color, rect.center, "center")
             draw_text(card_surface, rank, self.app.fonts["card"], color, (rect.x + 76, rect.y + 114), "bottomright")
+        if scale != 1.0:
+            card_surface = pygame.transform.smoothscale(card_surface, (int(98 * scale), int(136 * scale))).convert_alpha()
         if animate and self.card_anim > 0:
             progress = 1 - clamp(self.card_anim / 0.45, 0, 1)
             scale = 0.86 + 0.14 * progress
             angle = -7 + 7 * progress
             image = pygame.transform.rotozoom(card_surface, angle, scale)
-            target = image.get_rect(center=(x + 43, y + 61 - int((1 - progress) * 42)))
+            target = image.get_rect(center=(x + card_surface.get_width() // 2, y + card_surface.get_height() // 2 - int((1 - progress) * 42)))
             surface.blit(image, target)
         else:
-            surface.blit(card_surface, (x - 3, y - 3))
+            surface.blit(card_surface, (x - max(1, int(3 * scale)), y - max(1, int(3 * scale))))
 
-    def draw_hand(self, surface, title, hand, x, y, hide_first=False, active=False, spacing=96):
+    def draw_hand(self, surface, title, hand, x, y, hide_first=False, active=False, spacing=96, card_scale=1.0):
         title_color = GOLD_2 if active else MUTED
         draw_text(surface, title, self.app.fonts["body"], title_color, (x, y - 34))
         if active:
-            pygame.draw.line(surface, GOLD_2, (x, y - 7), (x + 220, y - 7), 3)
+            pygame.draw.line(surface, GOLD_2, (x, y - 7), (x + int(190 * card_scale), y - 7), 3)
         for i, card in enumerate(hand):
             owner = "dealer" if title == "Dealer" else "player"
             animate = self.card_anim_owner == owner and i == len(hand) - 1
-            self.draw_card(surface, card, x + i * spacing, y, hidden=hide_first and i == 0, animate=animate)
+            self.draw_card(surface, card, x + i * spacing, y, hidden=hide_first and i == 0, animate=animate, scale=card_scale)
+
+    def draw_player_hand_slot(self, surface, rect, index, hand, active):
+        fill = (18, 116, 82) if active else (13, 90, 66)
+        border = GOLD_2 if active else (55, 138, 101)
+        rounded_rect(surface, rect, fill, 14, 2, border)
+        title = f"Mão {index + 1}"
+        value = self.hand_value(hand)
+        draw_text(surface, title, self.app.fonts["small"], GOLD_2 if active else WHITE, (rect.x + 12, rect.y + 8))
+        draw_text(surface, str(value), self.app.fonts["small"], MUTED, (rect.right - 12, rect.y + 8), "topright")
+        scale = 0.54 if rect.h < 112 else 0.68
+        spacing = 44 if len(hand) <= 3 else 34
+        card_w = int(98 * scale)
+        total_w = card_w + max(0, len(hand) - 1) * spacing
+        x = rect.centerx - total_w // 2
+        y = rect.y + (30 if rect.h < 112 else 35)
+        for card_index, card in enumerate(hand):
+            animate = self.card_anim_owner == "player" and active and card_index == len(hand) - 1
+            self.draw_card(surface, card, x + card_index * spacing, y, animate=animate, scale=scale)
 
     def draw(self, surface):
         self.draw_panel_title(surface, "Blackjack", "Chegue a 21 sem estourar. Blackjack paga 3:2.")
@@ -942,12 +962,15 @@ class BlackjackScene(CasinoGameScene):
         self.draw_hand(surface, "Dealer", self.dealer, 154, 244, dealer_hidden)
         hands = self.player_hands if self.player_hands else ([self.player] if self.player else [])
         if len(hands) > 1:
-            hand_gap = 220 if len(hands) <= 3 else 126
-            card_spacing = 64 if len(hands) <= 3 else 46
+            layout = {
+                2: [(154, 410, 210, 132), (394, 410, 210, 132)],
+                3: [(114, 410, 190, 132), (324, 410, 190, 132), (534, 410, 190, 132)],
+                4: [(112, 386, 190, 100), (322, 386, 190, 100), (112, 488, 190, 88), (322, 488, 190, 88)],
+                5: [(92, 386, 176, 100), (284, 386, 176, 100), (476, 386, 176, 100), (184, 488, 176, 88), (376, 488, 176, 88)],
+            }
             for index, hand in enumerate(hands):
-                x = 126 + index * hand_gap
-                title = f"Mão {index + 1} ({self.hand_value(hand)})"
-                self.draw_hand(surface, title, hand, x, 412, False, self.phase == "player" and index == self.active_hand, card_spacing)
+                slot = pygame.Rect(layout.get(len(hands), layout[5])[index])
+                self.draw_player_hand_slot(surface, slot, index, hand, self.phase == "player" and index == self.active_hand)
         else:
             self.draw_hand(surface, "Você", self.player, 154, 412, False)
         player_value = self.hand_value(self.current_hand()) if hands else 0
