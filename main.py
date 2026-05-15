@@ -394,7 +394,8 @@ class CasinoGameScene(Scene):
         self.bet_hold_tick += dt
         interval = max(0.045, 0.11 - self.bet_hold_repeats * 0.004)
         while self.bet_hold_tick >= interval:
-            self.change_bet(self.bet_hold_delta)
+            step = min(1000, 25 * (2 ** min(6, self.bet_hold_repeats // 7)))
+            self.change_bet(step if self.bet_hold_delta > 0 else -step)
             self.bet_hold_tick -= interval
             self.bet_hold_repeats += 1
 
@@ -1179,6 +1180,10 @@ class RouletteScene(CasinoGameScene):
     def bet_count(self):
         return sum(len(values) for values in self.active_bets.values())
 
+    def stake_per_choice(self):
+        count = self.bet_count()
+        return self.bet / count if count else 0
+
     def is_bet_active(self, selection):
         kind, value = selection
         return value in self.active_bets[kind]
@@ -1196,11 +1201,19 @@ class RouletteScene(CasinoGameScene):
             else:
                 self.active_bets[kind].add(value)
 
+    def clear_bets(self):
+        if self.spinning > 0:
+            return
+        for values in self.active_bets.values():
+            values.clear()
+        self.message = "Escolhas da roleta zeradas."
+
     def build_ui(self):
         self.buttons = [Button(pygame.Rect(24, 22, 112, 42), "Menu", lambda: self.app.set_scene("menu"), "secondary")]
         self.add_bet_buttons(850, 604)
-        total_cost = self.bet * self.bet_count()
+        total_cost = self.bet
         self.buttons.append(Button(pygame.Rect(64, 604, 180, 52), "Girar", self.spin, "success", self.spinning <= 0 and self.bet_count() > 0 and self.app.balance >= total_cost))
+        self.buttons.append(Button(pygame.Rect(1010, 436, 82, 42), "Zerar", self.clear_bets, "danger", self.spinning <= 0 and self.bet_count() > 0))
         for selection, label, kind, x, y, w, h in self.option_specs():
             selected_kind = "primary" if self.is_bet_active(selection) else kind
             self.buttons.append(Button(pygame.Rect(x, y, w, h), label, lambda s=selection: self.select(s), selected_kind, self.spinning <= 0))
@@ -1218,7 +1231,7 @@ class RouletteScene(CasinoGameScene):
         return super().handle_event(event)
 
     def spin(self):
-        total_cost = self.bet * self.bet_count()
+        total_cost = self.bet
         if self.spinning > 0 or self.bet_count() == 0 or self.app.balance < total_cost:
             return
         self.app.balance -= total_cost
@@ -1261,26 +1274,28 @@ class RouletteScene(CasinoGameScene):
         num = self.current
         payout = 0
         wins = []
+        stake = self.stake_per_choice()
         for value in self.active_bets["number"]:
             if num == value:
-                payout += self.bet * 36
+                payout += stake * 36
                 wins.append(f"número {value}")
         for value in self.active_bets["color"]:
             if num != 0 and ((value == "red" and num in self.red_numbers) or (value == "black" and num not in self.red_numbers)):
-                payout += self.bet * 2
+                payout += stake * 2
                 wins.append("vermelho" if value == "red" else "preto")
         for value in self.active_bets["parity"]:
             if num != 0 and ((value == "even" and num % 2 == 0) or (value == "odd" and num % 2 == 1)):
-                payout += self.bet * 2
+                payout += stake * 2
                 wins.append("par" if value == "even" else "ímpar")
         for value in self.active_bets["range"]:
             if (value == "low" and 1 <= num <= 18) or (value == "high" and 19 <= num <= 36):
-                payout += self.bet * 2
+                payout += stake * 2
                 wins.append("1-18" if value == "low" else "19-36")
         for value in self.active_bets["dozen"]:
             if num != 0 and (num - 1) // 12 + 1 == value:
-                payout += self.bet * 3
+                payout += stake * 3
                 wins.append(f"{value}a dúzia")
+        payout = int(payout)
         if payout:
             self.app.balance += payout
             self.message = f"Caiu {num}. Venceram: {', '.join(wins)}. Total: {br_money(payout)} fichas."
@@ -1349,7 +1364,11 @@ class RouletteScene(CasinoGameScene):
         rounded_rect(surface, options_panel, (15, 73, 58), 14, 1, (60, 152, 117))
         draw_text(surface, "APOSTAS EXTERNAS", self.app.fonts["tiny"], (190, 232, 207), (362, 374))
         draw_text(surface, f"Selecionado: {self.selection_text()}", self.app.fonts["body"], GOLD_2, (356, 506))
-        draw_text(surface, f"{self.bet_count()} apostas | custo {br_money(self.bet * self.bet_count())}", self.app.fonts["small"], MUTED, (920, 506))
+        unit = self.stake_per_choice()
+        detail = f"{self.bet_count()} escolhas | total {br_money(self.bet)}"
+        if self.bet_count() > 1:
+            detail += f" | {br_money(unit)} cada"
+        draw_text(surface, detail, self.app.fonts["small"], MUTED, (858, 506))
         msg_rect = pygame.Rect(292, 604, 510, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
@@ -2162,7 +2181,7 @@ class CrashScene(CasinoGameScene):
         if self.state != "running":
             return
         self.elapsed += dt
-        self.multiplier = 1 + self.elapsed * 0.65 + (self.elapsed ** 2) * 0.42
+        self.multiplier = 1 + self.elapsed * 0.38 + (self.elapsed ** 2) * 0.18
         self.history.append(self.multiplier)
         self.history = self.history[-90:]
         if self.multiplier >= self.crash_point:
@@ -2595,7 +2614,7 @@ class CasinoApp:
         rounded_rect(self.screen, rect, (11, 15, 27), 0)
         pygame.draw.line(self.screen, (59, 70, 91), (0, 86), (WIDTH, 86), 1)
         draw_text(self.screen, "Casino 67", self.fonts["h3"], GOLD_2, (158, 25))
-        draw_text(self.screen, "André. B  |  Christian. S  |  Rony. F", self.fonts["small"], MUTED, (158, 55))
+        draw_text(self.screen, "André B  |  Christian S  |  Rony F", self.fonts["small"], MUTED, (158, 55))
         draw_chip(self.screen, (82, 43), 31, "67", self.fonts["body"])
         balance_rect = pygame.Rect(962, 18, 254, 50)
         rounded_rect(self.screen, balance_rect, (24, 34, 51), 12, 1, (88, 103, 130))
