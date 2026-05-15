@@ -697,7 +697,7 @@ class BlackjackScene(CasinoGameScene):
         hand = self.current_hand()
         return (
             self.phase == "player"
-            and len(self.player_hands) == 1
+            and len(self.player_hands) < 5
             and len(hand) == 2
             and self.card_split_value(hand[0]) == self.card_split_value(hand[1])
             and self.app.balance >= self.current_stake()
@@ -876,15 +876,17 @@ class BlackjackScene(CasinoGameScene):
         self.app.balance -= stake
         first = [original[0], self.draw_card_from_deck()]
         second = [original[1], self.draw_card_from_deck()]
-        self.player_hands = [first, second]
-        self.hand_stakes = [stake, stake]
-        self.hand_status = ["", ""]
-        self.active_hand = 0
+        self.player_hands[self.active_hand] = first
+        self.player_hands.insert(self.active_hand + 1, second)
+        self.hand_stakes.insert(self.active_hand + 1, stake)
+        self.hand_status[self.active_hand] = ""
+        self.hand_status.insert(self.active_hand + 1, "")
+        self.hand_count = len(self.player_hands)
         self.stake = sum(self.hand_stakes)
         self.sync_player_alias()
         self.card_anim = 0.35
         self.card_anim_owner = "player"
-        self.message = "Split feito! Jogue primeiro a mão 1."
+        self.message = f"Split feito! Continue a mão {self.active_hand + 1}."
 
     def draw_card(self, surface, card, x, y, hidden=False, animate=False, scale=1.0):
         card_surface = pygame.Surface((98, 136), pygame.SRCALPHA)
@@ -936,8 +938,15 @@ class BlackjackScene(CasinoGameScene):
         value = self.hand_value(hand)
         draw_text(surface, title, self.app.fonts["small"], GOLD_2 if active else WHITE, (rect.x + 12, rect.y + 8))
         draw_text(surface, str(value), self.app.fonts["small"], MUTED, (rect.right - 12, rect.y + 8), "topright")
-        scale = 0.54 if rect.h < 112 else 0.68
-        spacing = 44 if len(hand) <= 3 else 34
+        if rect.w >= 250:
+            scale = 0.78
+            spacing = 70 if len(hand) <= 3 else 52
+        elif rect.h >= 112:
+            scale = 0.68
+            spacing = 52 if len(hand) <= 3 else 38
+        else:
+            scale = 0.54
+            spacing = 42 if len(hand) <= 3 else 32
         card_w = int(98 * scale)
         total_w = card_w + max(0, len(hand) - 1) * spacing
         x = rect.centerx - total_w // 2
@@ -963,7 +972,7 @@ class BlackjackScene(CasinoGameScene):
         hands = self.player_hands if self.player_hands else ([self.player] if self.player else [])
         if len(hands) > 1:
             layout = {
-                2: [(154, 410, 210, 132), (394, 410, 210, 132)],
+                2: [(116, 396, 270, 150), (430, 396, 270, 150)],
                 3: [(114, 410, 190, 132), (324, 410, 190, 132), (534, 410, 190, 132)],
                 4: [(112, 386, 190, 100), (322, 386, 190, 100), (112, 488, 190, 88), (322, 488, 190, 88)],
                 5: [(92, 386, 176, 100), (284, 386, 176, 100), (476, 386, 176, 100), (184, 488, 176, 88), (376, 488, 176, 88)],
