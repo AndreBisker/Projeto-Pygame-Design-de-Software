@@ -484,14 +484,14 @@ class MenuScene(Scene):
             ("crash", "Crash 67", "Saque antes do multiplicador explodir.", "rocket"),
         ]
         self.card_rects = []
-        start_x, start_y = 52, 340
-        card_w, card_h, gap_x, gap_y = 276, 166, 18, 12
+        start_x, start_y = 50, 336
+        card_w, card_h, gap_x, gap_y = 280, 172, 16, 10
         for i, (scene, title, desc, icon) in enumerate(games):
             col = i % 4
             row = i // 4
             rect = pygame.Rect(start_x + col * (card_w + gap_x), start_y + row * (card_h + gap_y), card_w, card_h)
             self.card_rects.append((rect, scene, title, desc, icon))
-            self.buttons.append(Button(pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44), "Jogar", lambda s=scene: self.app.set_scene(s), "primary"))
+            self.buttons.append(Button(pygame.Rect(rect.x + 18, rect.bottom - 48, rect.w - 36, 38), "Jogar", lambda s=scene: self.app.set_scene(s), "primary"))
         self.buttons.append(Button(pygame.Rect(1030, 268, 170, 46), "Recarregar", self.app.refill_balance, "secondary"))
         self.buttons.append(Button(pygame.Rect(842, 268, 170, 46), "Rankings", lambda: self.app.set_scene("rankings"), "ghost"))
 
@@ -554,7 +554,7 @@ class MenuScene(Scene):
         draw_text(surface, "Salão 67", fonts["h1"], WHITE, (75, 230))
         draw_text(surface, "feito por: André B, Christian S, Rony F", fonts["body"], MUTED, (78, 282))
         draw_premium_chip(surface, (1094, 180), 76, "67", fonts["h1"], (math.sin(self.time * 1.6) + 1) / 2)
-        draw_text(surface, "Salão principal", fonts["h3"], WHITE, (72, 326))
+        draw_text(surface, "Salão principal", fonts["h3"], WHITE, (1094, 286), "center")
 
     def draw_menu_card(self, surface, rect, scene, title, desc, hovered):
         fonts = self.app.fonts
@@ -578,14 +578,16 @@ class MenuScene(Scene):
             pygame.draw.polygon(glow, (255, 235, 170, int(34 * t)), [(sweep_x, 0), (sweep_x + 62, 0), (sweep_x + 152, rect.h), (sweep_x + 88, rect.h)])
             surface.blit(glow, rect)
         compact = rect.h < 220
-        icon_rect = pygame.Rect(rect.x + 16, rect.y + 22, 96 if compact else 116, 72 if compact else 96)
+        icon_rect = pygame.Rect(rect.x + 16, rect.y + 18, 86 if compact else 116, 70 if compact else 96)
         draw_game_icon(surface, icon_rect, scene, fonts, hovered)
-        title_rect = pygame.Rect(rect.x + (124 if compact else 12), rect.y + (20 if compact else 132), rect.w - (140 if compact else 24), 34)
-        draw_centered_wrapped(surface, title, fonts["h3"], WHITE, title_rect, 2)
-        desc_panel = pygame.Rect(rect.x + (124 if compact else 14), rect.y + (58 if compact else 174), rect.w - (140 if compact else 28), 48 if compact else 86)
-        rounded_rect(surface, desc_panel, (14, 20, 34), 12, 1, lerp_color((62, 76, 104), (132, 112, 66), t))
-        draw_wrapped_text(surface, desc, fonts["small"], MUTED, desc_panel.inflate(-14, -10), 4, 2 if compact else 3)
-        cta = pygame.Rect(rect.x + 24, rect.bottom - 58, rect.w - 48, 44)
+        text_x = rect.x + (112 if compact else 12)
+        text_w = rect.right - text_x - 16
+        title_rect = pygame.Rect(text_x, rect.y + (16 if compact else 132), text_w, 34)
+        draw_wrapped_text(surface, title, fonts["menu_title"], WHITE, title_rect, 2, 1)
+        desc_panel = pygame.Rect(text_x, rect.y + (54 if compact else 174), text_w, 58 if compact else 86)
+        rounded_rect(surface, desc_panel, (8, 14, 25), 10, 1, lerp_color((82, 96, 126), GOLD, t * 0.65))
+        draw_wrapped_text(surface, desc, fonts["menu_desc"], (224, 232, 239), desc_panel.inflate(-12, -8), 3, 2 if compact else 3)
+        cta = pygame.Rect(rect.x + 18, rect.bottom - 48, rect.w - 36, 38)
         if t > 0.03:
             cta_glow = pygame.Surface((cta.w + 30, cta.h + 24), pygame.SRCALPHA)
             pygame.draw.rect(cta_glow, (255, 210, 112, int(72 * t)), pygame.Rect(15, 12, cta.w, cta.h), border_radius=12)
@@ -991,7 +993,7 @@ class BlackjackScene(CasinoGameScene):
         draw_text(surface, f"{label}: {player_value}", self.app.fonts["h2"], WHITE, (info_rect.x + 24, info_rect.y + 58))
         draw_text(surface, f"Dealer: {dealer_value}", self.app.fonts["h2"], WHITE, (info_rect.x + 24, info_rect.y + 108))
         draw_text(surface, f"Mesa: {br_money(self.stake)} fichas", self.app.fonts["body"], GOLD_2, (info_rect.x + 24, info_rect.y + 166))
-        msg_rect = pygame.Rect(502, 604, 320, 74)
+        msg_rect = pygame.Rect(548, 604, 274, 74) if self.phase == "player" else pygame.Rect(502, 604, 320, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
         if self.phase in ("ready", "result"):
@@ -2250,7 +2252,7 @@ class CrashScene(CasinoGameScene):
         draw_text(surface, f"{self.multiplier:.2f}x", self.app.fonts["h2"], GOLD_2, (878, 318))
         draw_text(surface, "SAQUE AGORA", self.app.fonts["tiny"], MUTED, (878, 386))
         draw_text(surface, f"{br_money(int(self.stake * self.multiplier))} fichas", self.app.fonts["h3"], GREEN, (878, 418))
-        msg_rect = pygame.Rect(292, 604, 510, 74)
+        msg_rect = pygame.Rect(458, 604, 364, 74)
         rounded_rect(surface, msg_rect, PANEL_2, 12, 1, (82, 96, 126))
         draw_centered_wrapped(surface, self.message, self.app.fonts["small"], WHITE, msg_rect)
         self.draw_bet_box(surface, 850, 604)
@@ -2580,6 +2582,8 @@ class CasinoApp:
             "h3": pygame.font.SysFont(families, 26, bold=True),
             "body": pygame.font.SysFont(families, 22),
             "button": pygame.font.SysFont(families, 18, bold=True),
+            "menu_title": pygame.font.SysFont(families, 23, bold=True),
+            "menu_desc": pygame.font.SysFont(families, 16, bold=True),
             "small": pygame.font.SysFont(families, 17),
             "tiny": pygame.font.SysFont(families, 13, bold=True),
             "card": pygame.font.SysFont(families, 24, bold=True),
