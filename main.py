@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pygame
 
-
 WIDTH, HEIGHT = 1280, 720
 FPS = 60
 
