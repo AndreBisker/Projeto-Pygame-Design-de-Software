@@ -23,4 +23,5 @@ Use o mouse para jogar. A tecla `ESC` volta ao menu; no menu principal, `ESC` fe
 
 Este é um cassino fictício para estudo e entretenimento, sem dinheiro real.
 
+Link do Jogo Funcionando
 https://youtu.be/XRa6Ck6cHZM
