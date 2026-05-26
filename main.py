@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pygame
 
-
+oito = 8
 WIDTH, HEIGHT = 1280, 720
 FPS = 60
 
